@@ -5,6 +5,8 @@ from sqlalchemy.exc import OperationalError
 
 from app.core.config import get_settings
 from app.core.logging import configure_logging
+from app.domain.exceptions import SessionNotFoundError
+from app.infrastructure.api.v1.chat_router import router as chat_router
 from app.infrastructure.api.v1.session_router import router as session_router
 
 
@@ -29,10 +31,15 @@ def create_app() -> FastAPI:
             content={"detail": "Database is currently unavailable. Please try again shortly."},
         )
 
+    @app.exception_handler(SessionNotFoundError)
+    def handle_session_not_found(request: Request, exc: SessionNotFoundError) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
     app.include_router(session_router, prefix="/api")
+    app.include_router(chat_router, prefix="/api")
 
     return app

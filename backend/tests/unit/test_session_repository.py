@@ -53,6 +53,22 @@ def test_delete_missing_session_returns_false(db_session):
     assert repo.delete(uuid4()) is False
 
 
+def test_touch_bumps_updated_at(db_session):
+    repo = SqlAlchemySessionRepository(db_session)
+    created = repo.create(_make_session())
+    original_updated_at = created.updated_at
+
+    repo.touch(created.id)
+
+    assert repo.get(created.id).updated_at > original_updated_at
+
+
+def test_touch_missing_session_is_a_no_op(db_session):
+    repo = SqlAlchemySessionRepository(db_session)
+
+    repo.touch(uuid4())  # must not raise
+
+
 def test_delete_session_cascades_to_messages(db_session):
     from app.domain.entities.message import Message, MessageRole
     from app.infrastructure.database.repositories.message_repo import SqlAlchemyMessageRepository

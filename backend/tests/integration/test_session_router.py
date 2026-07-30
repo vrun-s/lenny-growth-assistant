@@ -59,6 +59,23 @@ def test_delete_missing_session_returns_404(client: TestClient):
     assert response.status_code == 404
 
 
+def test_get_session_returns_session_and_empty_messages(client: TestClient):
+    created = client.post("/api/sessions", json={"title": "with history"}).json()
+
+    response = client.get(f"/api/sessions/{created['id']}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["session"]["id"] == created["id"]
+    assert body["messages"] == []
+
+
+def test_get_missing_session_returns_404(client: TestClient):
+    response = client.get(f"/api/sessions/{uuid4()}")
+
+    assert response.status_code == 404
+
+
 def test_db_connection_failure_returns_503():
     class BrokenSessionRepository(ISessionRepository):
         def create(self, session):
@@ -71,6 +88,9 @@ def test_db_connection_failure_returns_503():
             raise OperationalError("statement", {}, Exception("connection refused"))
 
         def delete(self, session_id):
+            raise OperationalError("statement", {}, Exception("connection refused"))
+
+        def touch(self, session_id):
             raise OperationalError("statement", {}, Exception("connection refused"))
 
     app = create_app()

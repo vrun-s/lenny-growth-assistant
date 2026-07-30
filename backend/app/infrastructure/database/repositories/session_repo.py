@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy.orm import Session as DbSession
@@ -47,3 +48,10 @@ class SqlAlchemySessionRepository(ISessionRepository):
         self._db.delete(model)
         self._db.commit()
         return True
+
+    def touch(self, session_id: UUID) -> None:
+        model = self._db.get(ChatSessionModel, session_id)
+        if model is None:
+            return
+        model.updated_at = datetime.now(timezone.utc)
+        self._db.commit()

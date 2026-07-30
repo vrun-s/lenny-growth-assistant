@@ -1,9 +1,11 @@
 # Product Requirements Document (PRD)
 
 **Project:** Lenny Growth Assistant
-**Version:** 2.0
+**Version:** 2.1
 **Author:** Varun S
 **Status:** Draft for 3-day build (due Aug 2, 2026 EOD)
+
+**Changed in v2.1:** the agent layer was re-specified after evaluator clarification. The system is now built *on top of the Claude Agent SDK as its harness* rather than around a hand-written router with three peer LLM providers. Affects §6.3, §6.5, §7.1, §8, §9, §10, §11.1, §11.2, §11.7.
 
 ---
 
@@ -28,7 +30,8 @@ Professionals consume long-form content like podcasts and newsletters to learn p
 - **Ship30 skill** — convert transcript knowledge into a ~1250-word essay in the Ship30for30 style.
 - **Artifact generation** — produce Markdown, HTML, or CSS on request.
 - **Artifact viewer** — render generated artifacts side-by-side with chat.
-- **LLM toggle** — switch between cloud (Anthropic/OpenAI) and local (Ollama) with one env var.
+- **LLM toggle** — switch between cloud (Anthropic) and local (Ollama) with one env var.
+- **Agent harness** — skill selection is driven by the Claude Agent SDK's agent loop, extended with this project's own tools, persistence, and grounding rules.
 
 ### Non-Goals
 - No authentication or multi-user accounts.
@@ -36,6 +39,7 @@ Professionals consume long-form content like podcasts and newsletters to learn p
 - No image generation.
 - No collaborative editing.
 - No production-scale deployment (this is a local-first evaluation build).
+- **No second cloud provider.** OpenAI was cut in v2.1 — see §6.3.
 
 ---
 
@@ -60,24 +64,26 @@ Professionals consume long-form content like podcasts and newsletters to learn p
 
 ## 5. Scope & MVP Phasing
 
-This is new in v2.0 and exists because the real constraint on this project isn't features — it's **~3 days**. Cutting scope deliberately and documenting the cut is itself part of what's being evaluated (product sense, system design judgment). The plan below assumes solo, sequential work; compress further if needed.
+The real constraint on this project isn't features — it's **~3 days**. Cutting scope deliberately and documenting the cut is itself part of what's being evaluated (product sense, system design judgment).
 
 | Day | Focus | Deliverable |
 |---|---|---|
-| **1** | Ingestion → chunking → pgvector → basic RAG | Can answer a question grounded in transcripts, from the CLI or a bare API endpoint |
-| **2** | Skill routing (tool-use) → Ship30 skill → Ollama toggle → error handling | Agent correctly dispatches to RAG / Ship30 / Artifact skill on both Claude and Ollama |
+| **1** | Ingestion → chunking → pgvector → retrieval | A grounded answer to a real question, from the CLI or a bare API endpoint |
+| **2** | Agent SDK harness → three tools → Ollama toggle → error handling | Harness dispatches to RAG / Ship30 / Artifact on both Claude and Ollama; named failures degrade gracefully |
 | **3** | Frontend chat + artifact viewer + docs + video | End-to-end demo, README, design.md, ARCHITECTURE.md, agent transcripts folder |
 
-**Cuts from v1.0 to protect the timeline:**
+**Sequencing note for Day 2:** wire the harness against **Ollama first**, not Anthropic. The cloud path is the low-risk one; the local path is both mandatory and the likeliest source of surprise (§9). Discovering an incompatibility on Day 2 morning is recoverable — on Day 3 evening it is not.
+
+**Cuts to protect the timeline:**
 
 | Cut | Replacement | Why |
 |---|---|---|
+| OpenAI provider | Anthropic only (cloud) | Brief requires *a* cloud provider; the Claude SDK is separately mandated. A third adapter bought nothing |
+| Custom skill router | Claude Agent SDK owns the loop | Writing a harness was the original misreading of the brief; adopting one is both correct and less code |
 | Rename chat | Skip | Not in the original brief; new/list/delete is sufficient |
-| Monaco Editor for artifacts | `react-markdown` + `rehype-sanitize` for Markdown; sandboxed `<iframe srcDoc>` for HTML/CSS | Gets ~90% of the "artifact viewer" experience for a fraction of the build time |
-| ChromaDB as a second vector store option | pgvector only | Avoids running two databases; Postgres is already required |
-| Full streaming UX polish | Streaming works, but artifacts render only once a message finishes | Avoids the added complexity of detecting a code fence mid-stream (see §6.6) |
-
-If time allows after Day 3, restore items from this list in the order listed — pgvector-first was a fixed decision, not a stretch item.
+| Monaco Editor for artifacts | `react-markdown` + `rehype-sanitize`; sandboxed `<iframe srcDoc>` | ~90% of the viewer experience for a fraction of the build time |
+| ChromaDB as a second vector store | pgvector only | Avoids running two databases; Postgres is already required |
+| Full streaming UX polish | Streaming works, but artifacts render once a message finishes | Avoids detecting a code fence mid-stream (§6.6) |
 
 ---
 
@@ -86,68 +92,80 @@ If time allows after Day 3, restore items from this list in the order listed —
 ### 6.1 Session Management
 - New Chat, Delete Chat, List/Load Chat History.
 - Each session maintains its own message history and context window.
+- Session state is **Postgres-backed, not harness-local** — the Agent SDK's own session handling is process-scoped and does not satisfy §7's restart-survival requirement.
 
 ### 6.2 Conversation Storage
 Store per message: role, content, timestamp, and any linked artifact.
 
 ### 6.3 LLM Switching
-Single env var controls provider:
+
+Single env var remains the user-facing switch:
 
 ```
-LLM_PROVIDER=anthropic   # or openai / ollama
+LLM_PROVIDER=anthropic   # or ollama
 ```
 
-All providers implement a common `BaseProvider` interface (see §11.3) so the rest of the app is provider-agnostic.
+There is **no per-vendor provider class hierarchy**. `core/config.py` resolves the toggle into a base URL and model name for one client:
+
+| `LLM_PROVIDER` | Base URL | Model | Auth |
+|---|---|---|---|
+| `anthropic` | Anthropic default | `claude-sonnet-*` | `ANTHROPIC_API_KEY`, required, checked at startup |
+| `ollama` | `http://localhost:11434` | e.g. `qwen3-coder` | dummy key (client requires one, Ollama ignores it) |
+
+This works because Ollama v0.14.0+ exposes an **Anthropic-compatible `/v1/messages` endpoint including tool use**, so the same harness and the same tool definitions run against both.
+
+**Embeddings are independent of this toggle** and always run locally via `nomic-embed-text` on Ollama (see `design.md`). This is what makes the §7 offline guarantee real: with `LLM_PROVIDER=ollama`, both chat and retrieval resolve to localhost.
 
 ### 6.4 Knowledge Base (RAG)
 
 ```
 GitHub repo (lennys-podcast-transcripts)
         │
-     Parser
-        │
-     Chunker
-        │
-    Embeddings
-        │
-   Vector DB (pgvector)
-        │
-    Retriever
-        │
-       LLM
+     Parser → Chunker → Embeddings → pgvector → Retriever
+                                                    │
+                                          rag_query tool → harness → LLM
 ```
 
 Answers must:
 - Retrieve relevant chunks before generating.
-- Cite the source episode (and ideally timestamp — see §11.3 Documents schema).
-- Explicitly decline rather than guess when the transcripts don't cover the question.
+- Cite the source episode (and ideally speaker/timestamp — see §11.3 Documents schema).
+- Explicitly decline rather than guess when the transcripts don't cover the question. This is enforced at the tool boundary: the tool returns retrieved context plus citations and nothing else, and the system prompt forbids answering outside it.
 
-### 6.5 Skill Routing — Agentic Architecture
+### 6.5 Agent Harness & Skill Selection
 
-This is the section most under-specified in v1.0, and it's the first thing the evaluators said they'd look at, so it gets its own detail here rather than a one-line diagram.
+**This section was rewritten in v2.1.** The v2.0 design specified a hand-written `router.py` that inspected tool-call output and dispatched to skills. That is an *agent harness*, written from scratch. The brief asks for the opposite: build on the Claude Agent SDK (or Pi) as the harness, and extend it.
 
-**Primary path (cloud providers — Anthropic/OpenAI):** use native tool-calling. Define three tools and let the model choose:
+**Harness vs. orchestration** — the distinction the rest of this section depends on:
+
+- **Harness** = owns the agent loop: calls the model, receives `tool_use`, executes the tool, feeds back `tool_result`, repeats. **Supplied by the Claude Agent SDK.**
+- **Orchestration** = what the tools do, plus session persistence, grounding rules, artifact typing, and error mapping. **Owned by this project.**
+
+**Tools registered with the harness** (tool *choice* is the model's; tool *behaviour* is ours):
 
 ```json
 [
-  { "name": "rag_query", "description": "Answer a product/growth question using only Lenny's transcripts" },
-  { "name": "write_ship30_essay", "description": "Write a ~1250-word Ship30for30-style essay from transcript knowledge" },
-  { "name": "generate_artifact", "description": "Generate a standalone Markdown or HTML/CSS artifact" }
+  { "name": "rag_query",           "description": "Answer a product/growth question using only Lenny's transcripts" },
+  { "name": "write_ship30_essay",  "description": "Write a ~1250-word Ship30for30-style essay from transcript knowledge" },
+  { "name": "generate_artifact",   "description": "Generate a standalone Markdown or HTML/CSS artifact" }
 ]
 ```
 
-The model's tool-choice *is* the router. This is more robust than a keyword classifier and is what "agent decides which skill to use" (an explicit grading criterion) is really asking for.
+The model's tool-choice *is* the routing. This is what "the agent decides which skill to use" (an explicit grading criterion) is really asking for — and now it is the SDK's loop making that call, not ours.
 
-**Fallback path (local — Ollama):** small local models are inconsistent at reliable function-calling. Rather than assume tool-use works locally, the router degrades gracefully:
+**What this project adds on top of the SDK** (the "improve the harness" requirement):
 
-1. Try native tool-calling if the loaded Ollama model supports it (e.g., recent Llama/Qwen builds).
-2. If unsupported or the model returns malformed tool-call output, fall back to a lightweight prompted classifier: a single short LLM call that returns one of `RAG | SHIP30 | ARTIFACT | GENERAL`, parsed defensively (default to `RAG` on any parse failure).
+1. The three domain tools above, as in-process SDK tools.
+2. A durable session bridge — harness turns persisted to Postgres and rehydrated on the next turn.
+3. Grounding enforcement at the tool boundary (§6.4), not left to model discretion.
+4. Structured artifact extraction from tool output → DB → viewer (§6.6).
+5. Failure mapping into the chat-visible behaviours of §7.1.
+6. Portability of the same tool set across cloud and local models.
 
-This fallback is a first-class part of the design, not an afterthought — it's what makes "mandatory local demo" actually work end-to-end. It's called out again in Risks (§9).
+**If the Agent SDK behaves unexpectedly against Ollama** (e.g. hits an unsupported sub-endpoint): test this first on Day 2 morning, not Day 3. The fix is almost certainly a config flag or disabling a specific SDK feature — not a second harness. Record whatever happens in `docs/agent-transcripts/`.
 
 ### 6.6 Artifact Viewer
-- Detect artifact type (Markdown vs HTML/CSS) from the tool call's structured output — not from parsing the raw chat text.
-- Markdown renders via `react-markdown`.
+- Detect artifact type (Markdown vs HTML/CSS) from the tool's structured output — not from parsing raw chat text.
+- Markdown renders via `react-markdown` + `rehype-sanitize`.
 - HTML/CSS renders inside a sandboxed `<iframe srcDoc="...">` (prevents generated code from touching the parent page/session).
 - Viewer opens automatically alongside chat when an artifact is produced.
 
@@ -158,19 +176,21 @@ This fallback is a first-class part of the design, not an afterthought — it's 
 | Requirement | Target |
 |---|---|
 | Response latency | <5s for RAG answers (cloud); local latency is best-effort and disclosed as such |
-| Session persistence | Survives backend restart (Postgres-backed) |
+| Session persistence | Survives backend restart (Postgres-backed, not harness-local) |
 | UI | Responsive, modern, works at desktop widths at minimum |
-| Offline capability | Full pipeline must run with `LLM_PROVIDER=ollama` and no internet access after initial model pull |
+| Offline capability | Full pipeline runs with `LLM_PROVIDER=ollama` and no internet access after initial model pull |
+| Local setup | Evaluator can run it with documented prerequisites, including any Node/Claude Code runtime the Agent SDK requires |
 
 ### 7.1 Error Handling (explicit — this is a named grading criterion)
 
 | Failure | Behavior |
 |---|---|
-| Missing API key (Anthropic/OpenAI) | Fail fast at startup with a clear message naming the missing env var; don't fail silently mid-conversation |
-| Ollama unreachable or request times out | Return a chat-visible error message ("Local model didn't respond — is Ollama running?") rather than hanging the UI; configurable timeout, default 30s |
-| Database connection failure | API returns 503 with a clear error body; frontend shows a banner rather than a blank chat; in-flight messages are not silently dropped |
-| Malformed tool-call output (local models) | Caught and routed through the fallback classifier (§6.5), not surfaced as a raw error |
-| Retrieval returns no relevant chunks | Model is instructed to say it couldn't find the answer in the transcripts, rather than answering from general knowledge |
+| Missing `ANTHROPIC_API_KEY` when `LLM_PROVIDER=anthropic` | Fail fast at startup naming the missing env var; never fail silently mid-conversation |
+| Ollama unreachable or request times out | Chat-visible error ("Local model didn't respond — is Ollama running?") rather than a hung UI; configurable timeout, default 30s |
+| Agent SDK incompatible with a specific Ollama sub-endpoint | Disable or configure the offending SDK feature; test Day 2 morning; never surface an SDK stack trace to the user |
+| Database connection failure | API returns 503 with a clear body; frontend shows a banner rather than a blank chat; in-flight messages are not silently dropped |
+| Tool raises / returns malformed output | Caught in the tool adapter, returned to the loop as a `tool_result` error so the model can recover, with an iteration cap to prevent runaway loops |
+| Retrieval returns no relevant chunks | Tool returns empty context; model is instructed to say it couldn't find the answer, not to answer from general knowledge |
 
 ---
 
@@ -178,9 +198,11 @@ This fallback is a first-class part of the design, not an afterthought — it's 
 
 Minimal but real, given the timeline:
 
-- **Backend:** pytest covering the provider interface (mock each provider), the router's fallback logic, and the RAG retrieval function against a small fixture set of transcript chunks.
-- **Frontend:** one or two smoke tests (e.g., Playwright) — send a message, confirm a response renders; trigger an artifact, confirm the viewer opens.
-- **Manual end-to-end pass:** one full run each on Anthropic and Ollama before recording the demo video, specifically exercising all three skills plus one deliberate error case (e.g., stop Ollama mid-conversation) — this doubles as content for the required "what failed and how you fixed it" transcript.
+- **Skill bodies (unit):** the three skills are plain callables with no SDK dependency — test them directly against a fixture set of transcript chunks and a mock `IVectorStore`. This is the main payoff of keeping tool logic out of the harness.
+- **Harness port (unit):** use cases are tested against a mock `IAgentHarness`; no network, no SDK.
+- **API (integration):** session CRUD and one chat round-trip with a stubbed harness.
+- **Frontend:** one or two smoke tests — send a message and confirm a response renders; trigger an artifact and confirm the viewer opens.
+- **Manual end-to-end:** one full run each on Anthropic and Ollama before recording the video, exercising all three tools plus one deliberate error case (e.g. stop Ollama mid-conversation). This doubles as content for the required "what failed and how you fixed it" transcript.
 
 ---
 
@@ -188,20 +210,24 @@ Minimal but real, given the timeline:
 
 | Risk | Mitigation |
 |---|---|
-| Large transcript corpus / embedding latency | Chunk and embed once at ingestion, not per-request; cache embeddings |
-| Hallucination | Strict "answer only from context" prompt + explicit decline behavior |
-| Context overflow on long sessions | Cap retrieved chunks; summarize older turns if needed |
-| **Local models unreliable at tool-calling** | Fallback prompted classifier (§6.5) — this is the biggest risk to the *mandatory* local demo and is treated as a core design requirement, not a stretch goal |
+| **Agent SDK compatibility with Ollama** | Ollama v0.14.0+ supports the Anthropic `/v1/messages` endpoint including tool use — the documented path. Test Day 2 morning; if a specific SDK feature causes a problem, disable or configure it. Record the outcome in `docs/agent-transcripts/` |
+| **Agent SDK runtime prerequisites** (Node / Claude Code CLI alongside the Python package) | Verify against official docs and document explicitly in the README; an undocumented prerequisite makes a working build look broken on the evaluator's machine |
+| Small local models choose tools poorly even when tool-calling works | Keep tool descriptions short and behaviourally distinct; pick a local model with solid tool support (e.g. a recent Qwen/Llama build); disclose local quality limits in the video |
+| Large transcript corpus / embedding latency | Chunk and embed once at ingestion, not per-request |
+| Hallucination | Grounding enforced at the tool boundary + explicit decline behaviour |
+| Context overflow on long sessions | Cap retrieved chunks; cap harness loop iterations; truncate older turns when rehydrating history |
 | Generated HTML/CSS could contain unsafe scripts | Rendered only in a sandboxed iframe, never injected into the parent DOM |
 
 ---
 
 ## 10. Success Criteria
 
-- ✔ Multiple sessions, persisted across restarts
-- ✔ Works with Ollama (with graceful fallback routing)
-- ✔ Works with Claude and/or OpenAI
-- ✔ RAG answers are grounded and cite sources
+- ✔ Multiple sessions, persisted across backend restarts
+- ✔ The **Claude Agent SDK owns the agent loop**; no hand-written router remains in the application layer
+- ✔ All three skills are registered as tools and selected by the model, not by our code
+- ✔ Works with Ollama end-to-end, offline, via the Anthropic-compatible endpoint
+- ✔ Works with Claude via the same harness and the same tools, toggled by one env var
+- ✔ RAG answers are grounded and cite sources; out-of-corpus questions are declined
 - ✔ Ship30 essay output matches the target structure and length
 - ✔ Artifact viewer renders Markdown and HTML/CSS side-by-side with chat
 - ✔ Named failure modes (§7.1) degrade gracefully, not silently
@@ -213,30 +239,39 @@ Minimal but real, given the timeline:
 ### 11.1 Architecture
 
 ```
-                React Frontend
-                      │
-               FastAPI Backend
-                      │
-          ┌───────────┴───────────┐
-          │                       │
-     Agent Router             PostgreSQL
-          │                   (+ pgvector)
-   ┌──────┼────────┐
-   │      │        │
- RAG   Ship30   Artifact
- Skill  Skill    Skill
-   │
-Retriever → pgvector → Embeddings → Lenny Transcripts
+                     React Frontend
+                           │
+                    FastAPI Backend
+                           │
+                   SendMessageUseCase
+                  ┌────────┴────────┐
+                  │                 │
+         IAgentHarness         PostgreSQL
+                  │            (+ pgvector)
+         Claude Agent SDK
+         (owns the loop)
+                  │
+            registered tools
+         ┌────┼─────────────┐
+         │    │             │
+      rag_  write_ship30  generate_
+      query   _essay       artifact
+         │
+   Retriever → pgvector → Embeddings (nomic-embed-text, local)
 ```
 
 ### 11.2 Tech Stack
 
-**Frontend:** React, Vite, TypeScript, TailwindCSS, shadcn/ui, react-markdown, sandboxed iframe (HTML/CSS artifacts)
+**Frontend:** React, Vite, TypeScript, TailwindCSS v4, shadcn/ui, react-markdown + rehype-sanitize, sandboxed iframe
 **Backend:** FastAPI, SQLAlchemy, Pydantic, Alembic
-**Database:** PostgreSQL + pgvector (single database, no second vector store)
-**LLM layer:** `BaseProvider` → `AnthropicProvider`, `OpenAIProvider`, `OllamaProvider`
+**Agent layer:** `claude-agent-sdk` (Python 3.10+) as the harness; `anthropic` client for the fallback loop
+**Database:** PostgreSQL 16 + pgvector (single database, no second vector store)
+**Models:** Anthropic Claude (cloud) or any Ollama model exposing the Anthropic-compatible endpoint (local)
+**Embeddings:** `nomic-embed-text` via Ollama, always local, 768-dim
 
 ### 11.3 Database Schema
+
+Unchanged from v2.0.
 
 **ChatSession**
 | Field | Type |
@@ -272,29 +307,42 @@ Retriever → pgvector → Embeddings → Lenny Transcripts
 | title | text |
 | source | text (GitHub path) |
 | episode | text |
-| speaker | text, nullable — *added in v2.0 for finer-grained citation* |
-| timestamp_range | text, nullable — *added in v2.0, e.g. "12:04–13:10", enables citing the moment, not just the episode* |
+| speaker | text, nullable |
+| timestamp_range | text, nullable — e.g. "12:04–13:10" |
 | chunk | text |
-| embedding | vector |
+| embedding | vector(768) |
+
+Enum columns persist *values*, not member names (`user`/`assistant`, `markdown`/`html`) — see `design.md`.
 
 ### 11.4 API Design
 
+All routes are mounted under a single `/api` prefix in `infrastructure/api/app.py`.
+
 | Endpoint | Purpose |
 |---|---|
-| `POST /sessions` | Create session |
-| `GET /sessions` | List sessions |
-| `GET /sessions/{id}` | Get session + messages |
-| `DELETE /sessions/{id}` | Delete session |
-| `POST /chat` | Send message, get response |
-| `POST /chat/stream` | Streaming variant |
-| `GET /artifacts/{id}` | Fetch artifact |
-| `POST /artifacts` | Create artifact (internal, used by Artifact Skill) |
-| `POST /ingest` | Run ingestion pipeline |
-| `POST /reindex` | Rebuild embeddings |
+| `POST /api/sessions` | Create session |
+| `GET /api/sessions` | List sessions |
+| `GET /api/sessions/{id}` | Get session + messages |
+| `DELETE /api/sessions/{id}` | Delete session |
+| `POST /api/chat` | Send message, get response (harness turn) |
+| `POST /api/chat/stream` | Streaming variant |
+| `GET /api/artifacts/{id}` | Fetch artifact |
+| `POST /api/ingest` | Run ingestion pipeline |
+
+`POST /artifacts` was removed: artifacts are created inside the harness turn by the `generate_artifact` tool and persisted by `SendMessageUseCase`. An external creation endpoint would be a second, unused write path.
 
 ### 11.5 Prompt Templates
 
-**RAG**
+**System prompt (harness-level)**
+```
+You are a growth advisor grounded in Lenny's Podcast transcripts.
+You have three tools. Choose the one that fits the user's request.
+Never answer product/growth questions from your own knowledge —
+use rag_query and rely only on what it returns.
+If a tool returns no relevant context, say so plainly.
+```
+
+**RAG (tool-level, wraps retrieved context)**
 ```
 Answer ONLY using the retrieved context below.
 If the answer isn't in the context, say:
@@ -302,7 +350,7 @@ If the answer isn't in the context, say:
 Never invent information. Cite the episode (and speaker/timestamp if available).
 ```
 
-**Ship30**
+**Ship30 (tool-level)**
 ```
 Write a ~1250-word essay in the Ship30for30 style, using ONLY the
 retrieved transcript context provided.
@@ -317,11 +365,11 @@ Structure:
 Do not introduce claims that aren't grounded in the retrieved context.
 ```
 
-**Artifact**
+**Artifact (tool-level)**
 ```
 Generate only valid Markdown or HTML/CSS based on the conversation context.
-Return the artifact inside a single fenced code block.
-No explanations before or after the code block.
+Return the artifact plus its type ("markdown" or "html") as structured
+tool output. No explanation before or after.
 ```
 
 ### 11.6 Frontend
@@ -331,36 +379,19 @@ No explanations before or after the code block.
 
 ### 11.7 Folder Structure
 
+The v2.0 flat layout in this section was stale and conflicted with `ARCHITECTURE.md`. **The canonical tree now lives in `ARCHITECTURE.md` §3 only.** Summary of the backend shape:
+
 ```
-lenny-growth-assistant/
-  frontend/
-    components/
-    pages/
-    hooks/
-    services/
-    types/
-  backend/
-    api/
-    agents/
-    providers/
-    rag/
-    prompts/
-    models/
-    schemas/
-    services/
-    repositories/
-    core/
-      config.py
-      database.py
-      vectorstore.py
-    ingestion/
-    scripts/
-  docs/
-    PRD.md
-    ARCHITECTURE.md
-    design.md
-    README.md
-    agent-transcripts/        ← added in v2.0, required by the brief
+backend/app/
+  core/            # config (incl. LLM toggle resolution), logging
+  domain/          # entities + ports (IRepository, IAgentHarness, IVectorStore)
+  application/     # use_cases/ + skills/  ← tool LOGIC, no SDK import, no agent loop
+  infrastructure/
+    api/           # FastAPI routers, schemas, deps
+    database/      # SQLAlchemy models + repositories
+    harness/       # tool REGISTRATION + the agent loop (Agent SDK / fallback)
+    vectorstore/   # embeddings, retriever, pgvector driver
+    ingestion/     # parser, chunker, embedder, loader
 ```
 
 ---
@@ -369,6 +400,7 @@ lenny-growth-assistant/
 
 - Authentication
 - Export conversations
+- Restore an OpenAI adapter if multi-cloud is ever needed
 - Image generation
 - Collaborative editing
 - Mobile app

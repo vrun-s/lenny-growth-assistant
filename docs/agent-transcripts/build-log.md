@@ -76,3 +76,151 @@ Carried over from Phase 0 — the daemon wasn't running in this environment, so 
 
 **Bug found during this real-DB verification: a dead database connection hung the request forever instead of returning 503**
 Stopping the `db` container mid-session and hitting `GET /api/sessions` never returned — no timeout, no 503, just an indefinite hang (verified via a 15s+ `curl -m` that still timed out, and confirmed in the `uvicorn` access log that the request never completed). Root cause: `create_engine()` in `infrastructure/database/connection.py` had `pool_pre_ping=True` but no `connect_timeout`, so psycopg's TCP connect attempt to a port with nothing listening (Docker Desktop/WSL2 networking) waited far longer than any reasonable request budget — the global `OperationalError` → 503 handler added in Phase 1 only works if psycopg actually *raises* in a bounded time, which it wasn't doing. Fixed by adding `connect_args={"connect_timeout": 3}` to the engine. Re-verified: DB-down request now fails and returns `503 {"detail": "Database is currently unavailable..."}` in ~6s instead of hanging indefinitely, and the app recovers cleanly (200s resume, prior data intact) once the container is restarted. **This is exactly the kind of gap that only shows up against a real database** — the SQLite-only verification in the first Phase 1 pass could never have caught it, since SQLite has no network layer to hang on.
+
+
+---
+Prompt by me: (Got ChatGPT, Gemini & Deepseek to devise a plan for Phase 2)
+Implement Phase 2 — Basic Chat for the Lenny Growth Assistant, per docs/workflow.md
+
+and docs/PRD.md. Goal: prove the full conversation flow (frontend → API → use case →
+
+persistence) with a hardcoded dummy assistant response. No LLM, RAG, streaming, tool
+
+calling, markdown rendering, or artifacts in this phase.
+
+Before writing code, confirm and record in docs/design.md:
+
+- API route prefix: use whatever Phase 1 already established for /sessions endpoints
+
+  (check infrastructure/api/app.py's router mount) and use the SAME prefix for the new
+
+  /chat endpoint. Do not introduce a second, inconsistent prefix.
+
+Backend
+
+1. MessageRepository (infrastructure/database/repositories/)
+
+   - create(session_id, role, content) -> Message
+
+   - list_by_session(session_id) -> list[Message], explicitly ordered by created_at ASC
+
+   - Must implement the IMessageRepository port declared in domain/interfaces/.
+
+2. SendMessageUseCase (application/use_cases/send_message.py)
+
+   - Constructor takes IMessageRepository and ISessionRepository (ports only —
+
+     must not import any concrete class from infrastructure/database/ directly).
+
+   - execute(session_id, message) flow:
+
+     a. Verify the session exists via ISessionRepository; if not found, raise a
+
+        domain-level "not found" error (mapped to HTTP 404 at the API layer).
+
+     b. Save the user message via MessageRepository.create(...).
+
+     c. Generate the dummy response: "This is a dummy response."
+
+     d. Save the assistant message via MessageRepository.create(...).
+
+     e. Bump the session's updated_at.
+
+     f. Return the saved assistant Message entity (not the raw string) so
+
+        created_at/id are populated for whatever the API/frontend does with it.
+
+3. POST {prefix}/chat
+
+   Request:  { "session_id": "...", "message": "Hello" }
+
+   Response: { "session_id": "...", "assistant_message": "This is a dummy response." }
+
+   (Include session_id in the response even though the caller already has it —
+
+   keeps the response self-describing for later phases, e.g. streaming.)
+
+   404 if session_id doesn't exist. No AI provider code anywhere in this endpoint.
+
+4. GET {prefix}/sessions/{id}
+
+   Response: { "session": {...}, "messages": [...] }, messages ordered oldest-first.
+
+   If already implemented in Phase 1, only verify it returns full message history
+
+   in the correct order — don't rebuild it.
+
+Frontend
+
+Replace the placeholder chat page with:
+
+- Message list (renders stored messages in order)
+
+- Text input
+
+- Send button
+
+Flow: type message → POST {prefix}/chat → append user message to local state →
+
+append returned assistant_message to local state.
+
+On page load: GET {prefix}/sessions/{id} → render messages → confirms persistence
+
+survives refresh.
+
+Explicitly out of scope for this phase — do not add:
+
+- Anthropic/OpenAI/Ollama providers
+
+- RAG / retrieval
+
+- Streaming (SSE/WebSocket)
+
+- Skills or tool-calling / routing
+
+- Markdown rendering
+
+- Artifact generation or the artifact viewer
+
+- Sidebar or any UI beyond message list + input + send button
+
+Success checklist :
+
+- [ ] Can create a session
+
+- [ ] Can open the chat and send a message
+
+- [ ] Sending to a nonexistent session_id returns 404, not a crash or silent new session
+
+- [ ] User message is persisted
+
+- [ ] Dummy assistant message is persisted
+
+- [ ] Messages are returned/rendered in created_at ascending order
+
+- [ ] Refreshing the page reloads the full conversation from the database
+
+- [ ] SendMessageUseCase imports only from domain/ — no direct infrastructure/database/
+
+      imports (grep for it before committing)
+
+- [ ] No LLM/provider/RAG/streaming code exists anywhere in this diff
+
+- [ ] Route prefix matches Phase 1's convention; decision recorded in docs/design.md
+
+---
+
+## Phase 2 — Basic Chat (2026-07-30)
+
+Route prefix confirmed before writing code (`docs/design.md` — `/api`, single mount point in `app.py`); `chat_router` and the new `GET /sessions/{id}` reuse it, no second prefix introduced.
+
+**Issue: stale Postgres volume from before the enum-values fix broke the first live chat send with a 500**
+End-to-end testing through the real Vite dev proxy against real Postgres (Docker Desktop was up from the Phase 1 session) hit `sqlalchemy.exc.DataError: invalid input value for enum messagerole: "user"` on the very first `POST /api/chat`. Cause: the `deployment_pgdata` Docker volume was created *before* the Phase 1 fix that made `MessageRole`/`ArtifactType` persist their `.value` instead of their member name (documented in `docs/design.md`, which already warned "anyone with a database created before this change must rebuild it") — the container had never actually been rebuilt after that fix landed, so its `messagerole` enum type still only accepted `USER`/`ASSISTANT`. Fixed by following the documented recovery: `docker compose down -v && docker compose up -d`, then `alembic upgrade head` against the fresh volume. Resolved by the agent, following an instruction the agent itself had written down a phase earlier — a good argument for actually writing standing decisions down.
+
+**Issue: frontend → backend calls 502'd through the Vite dev proxy, but `curl http://localhost:8000/health` worked fine**
+`vite.config.ts`'s proxy target was `http://localhost:8000`. Every proxied `/api/*` request failed with `ECONNREFUSED ::1:8000` in the Vite log. Root cause: Node resolves the bare hostname `localhost` to `::1` (IPv6) first on this machine, but `uvicorn`'s default bind (`127.0.0.1`) is IPv4-only and nothing is listening on `::1:8000` — whereas `curl localhost:8000` silently succeeds because curl tries both address families. Fixed by pointing the proxy at `http://127.0.0.1:8000` explicitly instead of the bare hostname, with a comment in `vite.config.ts` explaining why (so it doesn't get "cleaned up" back to `localhost` later). Resolved by the agent; no user input needed. **Takeaway:** always verify a new endpoint through the actual dev proxy the frontend uses, not just direct `curl` to the backend port — they can disagree.
+
+After both fixes, the full flow was verified live through the Vite proxy against real Postgres: create session → two chat turns → `GET /sessions/{id}` returned all four messages in correct oldest-first order with `updated_at` bumped on the session. `pytest` (29 tests, SQLite-backed) and `tsc -b`/`vite build` both stayed green throughout.
+
+
+---

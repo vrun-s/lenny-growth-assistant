@@ -20,6 +20,11 @@ class ISessionRepository(ABC):
         """Delete the session, returning True if it existed."""
         ...
 
+    @abstractmethod
+    def touch(self, session_id: UUID) -> None:
+        """Bump the session's updated_at to now."""
+        ...
+
 
 class IMessageRepository(ABC):
     @abstractmethod

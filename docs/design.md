@@ -65,3 +65,33 @@ Standing decisions that should not be re-litigated per feature. If a decision ch
 **Decision:** `"strict": true` in both `tsconfig.app.json` and `tsconfig.node.json`.
 
 **Why:** It was absent while every other strictness flag the Vite template ships (`noUnusedLocals`, `noUnusedParameters`, `erasableSyntaxOnly`, `noFallthroughCasesInSwitch`) was present — so the codebase was paying for strictness ergonomics without getting null-safety. Turning it on while the frontend is still two placeholder pages costs nothing; turning it on in Phase 7 would not.
+
+---
+
+## API route prefix: `/api`, one prefix for the whole backend (2026-07-30)
+
+**Decision:** `infrastructure/api/app.py` mounts every `v1` router under a single `/api` prefix (`app.include_router(session_router, prefix="/api")`). Phase 2's `chat_router` is mounted the same way, giving `POST /api/chat` and `GET /api/sessions/{id}` alongside the existing `/api/sessions` endpoints. No router declares its own `/api` — each router's own `prefix` (`/sessions`, `/chat`) only names the resource, and `app.py` is the single place that decides the mount point.
+
+**Why:** The Vite dev proxy (`frontend/vite.config.ts`) forwards `/api/*` to the backend verbatim (no path rewrite), and the frontend's `api_client.ts` already hardcodes `API_BASE_URL = '/api'`. A second, inconsistent prefix on a new router would silently 404 from the frontend's perspective while working fine from `curl`. Checked before writing any Phase 2 code rather than assumed.
+
+## The Claude Agent SDK is the harness; we do not write an agent loop (2026-07-30)
+
+**Decision:** The agent loop is owned by the Claude Agent SDK, integrated in `infrastructure/harness/`. The planned `application/skills/router.py` is cancelled. The three skills become tools registered with the SDK: their *logic* stays in `application/skills/` as plain callables, their *registration* (SDK decorators, JSON schemas, in-process MCP server) lives in `infrastructure/harness/tool_adapters.py`. The `BaseProvider → AnthropicProvider | OpenAIProvider | OllamaProvider` hierarchy is cancelled and replaced by a single `IAgentHarness` port. OpenAI is dropped entirely.
+
+**Why:** The brief says to build the API *on top of* the Claude SDK or Pi Coding Agent, and the clarification confirmed this means adopting a harness and improving it — not importing an SDK as one of several LLM clients while hand-rolling the loop. "Harness" (owns the loop) and "orchestration" (owns what the tools do, persistence, grounding) are distinct layers; the cancelled router conflated them by putting an agent loop in the business layer. The replacement is also *less* code: one harness adapter plus thin tool wrappers, versus a router plus three provider classes.
+
+**How the toggle survives:** `LLM_PROVIDER` remains the single switch, but it now resolves to a base URL + model name rather than selecting a class. Ollama v0.14.0+ exposes an Anthropic-compatible `/v1/messages` endpoint including tool use, so `LLM_PROVIDER=ollama` points the same client at `http://localhost:11434` with a dummy key. Same harness, same tools, both paths.
+
+**Consequences:**
+- `domain/interfaces/llm_provider.py` becomes `agent_harness.py` (`IAgentHarness.run(...) -> AgentResult`).
+- `infrastructure/providers/` is deleted; `infrastructure/harness/` replaces it.
+- A new domain entity `AgentResult` (text + citations + optional artifact) is the harness return type, keeping SDK message objects out of the inner layers.
+- Session state must be bridged to Postgres explicitly — the SDK's own session handling is process-local and would not survive a backend restart (PRD §7).
+- Invariant to enforce: `grep -r "claude_agent_sdk" backend/app/application backend/app/domain` returns nothing.
+- Embeddings are untouched — still `nomic-embed-text` via Ollama regardless of chat provider, which is what keeps the offline guarantee true.
+
+**No fallback harness.** An earlier revision of this document included a second `messages_api_harness.py` as insurance against the SDK misbehaving against Ollama. That was over-engineering: Ollama v0.14.0+ exposes a documented, tested Anthropic-compatible `/v1/messages` endpoint including tool use, and the reported issues were about the Claude Code CLI — not the Agent SDK used programmatically. A second loop is real build time spent on a contingency that probably never fires. The correct response to an actual incompatibility is disabling the specific SDK feature that causes it, tested on Day 2 morning. `IAgentHarness` still earns its place as the port you mock in unit tests.
+
+**Alternative considered:** Pi Coding Agent as the harness. The evaluator explicitly allows either. Rejected because Pi is TypeScript-first and oriented around read/write/edit/bash coding tools, which would mean either a second runtime beside the Python backend or reshaping a coding harness into a RAG/essay backend. The Claude Agent SDK has a first-party Python package and the Anthropic-compatible endpoint story that makes the mandatory Ollama path work with the same tool definitions.
+
+**Revisit when:** the Agent SDK proves fundamentally unworkable against Ollama despite config-level fixes — at that point, reconsider Pi. Record the outcome in `docs/agent-transcripts/` regardless; the attempt and its result are a required deliverable.

@@ -1,7 +1,7 @@
 # Workflow Guide — Lenny Growth Assistant
 
 **Timeline:** 3 days (due Aug 2, 2026 EOD)
-**Status:** Phases 0 and 1 complete. Phase 2 is next.
+**Status:** Phases 0, 1, and 2 complete. Phase 3 is next.
 **Purpose of this doc:** the single phase plan and checklist for this build — a practical, checkable build order that protects the PRD's Day 1 goal, bakes in the named grading criteria (error handling, testing, routing) as you go instead of at the end, and matches `ARCHITECTURE.md`'s layering. Check items off as you go — don't skip to Phase 9 items early, and don't defer them either.
 
 ---
@@ -95,12 +95,18 @@ If a requested change affects another milestone, explain the tradeoff before pro
 User → POST /chat → Dummy response → Save conversation → Return response
 ```
 
-### Frontend
-- [ ] Chat window
-- [ ] Input
-- [ ] Message history renders
+### Backend
+- [x] `MessageRepository` implementing `IMessageRepository` (`create`, `list_by_session` ordered oldest-first)
+- [x] `SendMessageUseCase` (ports only — verifies session via `ISessionRepository`, persists user + dummy assistant message, bumps `updated_at`, raises `SessionNotFoundError` → 404)
+- [x] `POST /api/chat` — `{session_id, message}` → `{session_id, assistant_message}`; 404 for a nonexistent session
+- [x] `GET /api/sessions/{id}` — `{session, messages}`, messages oldest-first
 
-**Deliverable:** You can chat. Messages persist. Reload the page — conversation still exists.
+### Frontend
+- [x] Chat window
+- [x] Input
+- [x] Message history renders
+
+**Deliverable:** You can chat. Messages persist. Reload the page — conversation still exists. *(Verified end-to-end against real Postgres — see `agent-transcripts/build-log.md`.)*
 
 **Commit:** `feat: implement chat workflow`
 
