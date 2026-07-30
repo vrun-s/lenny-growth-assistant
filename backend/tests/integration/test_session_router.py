@@ -6,7 +6,8 @@ from sqlalchemy.exc import OperationalError
 
 from app.domain.interfaces.repositories import ISessionRepository
 from app.infrastructure.api.app import create_app
-from app.infrastructure.api.deps import get_session_repository
+from app.infrastructure.api.deps import get_message_repository, get_session_repository
+from app.infrastructure.database.repositories.message_repo import SqlAlchemyMessageRepository
 from app.infrastructure.database.repositories.session_repo import SqlAlchemySessionRepository
 
 
@@ -14,6 +15,7 @@ from app.infrastructure.database.repositories.session_repo import SqlAlchemySess
 def client(db_session) -> TestClient:
     app = create_app()
     app.dependency_overrides[get_session_repository] = lambda: SqlAlchemySessionRepository(db_session)
+    app.dependency_overrides[get_message_repository] = lambda: SqlAlchemyMessageRepository(db_session)
     return TestClient(app)
 
 

@@ -95,3 +95,19 @@ Standing decisions that should not be re-litigated per feature. If a decision ch
 **Alternative considered:** Pi Coding Agent as the harness. The evaluator explicitly allows either. Rejected because Pi is TypeScript-first and oriented around read/write/edit/bash coding tools, which would mean either a second runtime beside the Python backend or reshaping a coding harness into a RAG/essay backend. The Claude Agent SDK has a first-party Python package and the Anthropic-compatible endpoint story that makes the mandatory Ollama path work with the same tool definitions.
 
 **Revisit when:** the Agent SDK proves fundamentally unworkable against Ollama despite config-level fixes — at that point, reconsider Pi. Record the outcome in `docs/agent-transcripts/` regardless; the attempt and its result are a required deliverable.
+
+---
+
+## Phase 3 built harness-only, with zero tools registered (2026-07-30)
+
+**Decision:** `IAgentHarness`, `AgentResult`, and `AgentSdkHarness` were implemented and wired into `SendMessageUseCase`/`chat_router`, but `infrastructure/harness/tool_adapters.py` was **not** created and no tools are registered with `ClaudeAgentOptions` yet. `rag_skill.py`, `ship30_skill.py`, and `artifact_skill.py` exist as plain-callable placeholders that raise `NotImplementedError` with a message pointing at the missing dependency (`infrastructure/vectorstore` for the first two, an `IArtifactRepository` port for the third).
+
+**Why:** Phase 4 (ingestion + `IVectorStore`/pgvector retrieval) doesn't exist yet, so `rag_skill`/`ship30_skill` would have nothing real to retrieve from. The alternative — a temporary in-memory/fake vector store to demo tool-calling early — was explicitly rejected: it's a throwaway implementation that would need to be torn out again once Phase 4 lands, and it risks masking a real retrieval bug behind fake data that always "works." Matches `workflow.md`'s existing phase order (Phase 3 → 4 → 5 → 6) and its own stated Phase 3 scope: "runs a turn with no tools yet."
+
+**Consequence:** the harness currently answers from the model's own knowledge with no grounding, since there are no tools to call. This is expected and temporary — do not treat it as the RAG grounding requirement being met. Tool registration and real skill bodies land together once Phase 4 is done.
+
+**LLM_PROVIDER → base_url resolution, concretely:** `core/config.py`'s `Settings.harness_base_url`/`harness_model`/`harness_api_key` properties resolve the toggle. Because the Claude Agent SDK wraps the Claude Code CLI as a subprocess rather than calling the Anthropic Messages API directly in-process, there's no `base_url` field on `ClaudeAgentOptions` — the Ollama endpoint is passed via `ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY` in `ClaudeAgentOptions.env`, which the CLI subprocess reads the same way it would from a shell environment.
+
+**Fail-fast on missing `ANTHROPIC_API_KEY`:** implemented as a Pydantic `model_validator(mode="after")` on `Settings`, so `get_settings()` — called once at `create_app()` startup — raises `ValidationError` immediately when `LLM_PROVIDER=anthropic` and no key is set, rather than failing on the first chat request. Tests need a dummy key via an autouse `conftest.py` fixture as a result (see `docs/agent-transcripts/build-log.md`).
+
+**Ollama unreachable / harness timeout:** `AgentSdkHarness.run()` wraps the async SDK call in `asyncio.wait_for(..., timeout=settings.harness_timeout_seconds)` (default 30s) and maps both timeouts and connection failures to a new domain exception, `HarnessUnavailableError`, mapped to HTTP 502 in `app.py` with the exact chat-visible message from `ARCHITECTURE.md`/PRD §7.1 ("Local model didn't respond — is Ollama running?" for Ollama).

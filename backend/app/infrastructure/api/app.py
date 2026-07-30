@@ -5,7 +5,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.core.config import get_settings
 from app.core.logging import configure_logging
-from app.domain.exceptions import SessionNotFoundError
+from app.domain.exceptions import HarnessUnavailableError, SessionNotFoundError
 from app.infrastructure.api.v1.chat_router import router as chat_router
 from app.infrastructure.api.v1.session_router import router as session_router
 
@@ -34,6 +34,10 @@ def create_app() -> FastAPI:
     @app.exception_handler(SessionNotFoundError)
     def handle_session_not_found(request: Request, exc: SessionNotFoundError) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(HarnessUnavailableError)
+    def handle_harness_unavailable(request: Request, exc: HarnessUnavailableError) -> JSONResponse:
+        return JSONResponse(status_code=502, content={"detail": str(exc)})
 
     @app.get("/health")
     def health() -> dict[str, str]:

@@ -6,7 +6,18 @@ from sqlalchemy.orm import Session as DbSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.config import get_settings
 from app.infrastructure.database.orm_models import Base
+
+
+@pytest.fixture(autouse=True)
+def _default_test_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    # LLM_PROVIDER=anthropic fails fast without a key (by design) — tests that
+    # don't exercise the real harness still need create_app() to boot.
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-a-real-key")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture

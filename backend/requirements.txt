@@ -5,3 +5,4 @@ pydantic-settings==2.14.2
 sqlalchemy==2.0.51
 psycopg[binary]==3.3.4
 alembic==1.18.5
+claude-agent-sdk==0.2.128
