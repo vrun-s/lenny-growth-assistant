@@ -18,4 +18,9 @@ def send_message(
 ) -> ChatResponse:
     use_case = SendMessageUseCase(message_repo, session_repo, harness)
     result = use_case.execute(payload.session_id, payload.message)
-    return ChatResponse(session_id=payload.session_id, assistant_message=result.text)
+    return ChatResponse(
+        session_id=payload.session_id,
+        assistant_message=result.text,
+        citations=result.citations,
+        artifact_id=result.artifact.id if result.artifact else None,
+    )

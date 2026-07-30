@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from uuid import UUID
 
+from app.domain.entities.artifact import Artifact
 from app.domain.entities.message import Message
 from app.domain.entities.session import Session
 
@@ -32,3 +33,11 @@ class IMessageRepository(ABC):
 
     @abstractmethod
     def list_by_session(self, session_id: UUID) -> list[Message]: ...
+
+
+class IArtifactRepository(ABC):
+    @abstractmethod
+    def create(self, artifact: Artifact) -> Artifact: ...
+
+    @abstractmethod
+    def get(self, artifact_id: UUID) -> Artifact | None: ...

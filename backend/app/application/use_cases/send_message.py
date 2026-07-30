@@ -35,7 +35,7 @@ class SendMessageUseCase:
             )
         )
 
-        result = self._harness.run(history, message)
+        result = self._harness.run(history, message, session_id)
 
         self._message_repo.create(
             Message(
@@ -44,6 +44,7 @@ class SendMessageUseCase:
                 role=MessageRole.ASSISTANT,
                 content=result.text,
                 created_at=datetime.now(timezone.utc),
+                artifact_id=result.artifact.id if result.artifact else None,
             )
         )
 

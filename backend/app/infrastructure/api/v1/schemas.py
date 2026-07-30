@@ -43,3 +43,38 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     session_id: UUID
     assistant_message: str
+    citations: list[str] = []
+    artifact_id: UUID | None = None
+
+
+class IngestRequest(BaseModel):
+    markdown: str
+    source: str = ""
+    episode: str | None = None
+
+
+class IngestResponse(BaseModel):
+    title: str
+    source: str
+    ingested_chunks: int
+
+
+class SearchRequest(BaseModel):
+    query: str
+    top_k: int = 5
+
+
+class SearchResultResponse(BaseModel):
+    chunk: str
+    score: float
+    title: str
+    source: str
+    episode: str
+    speaker: str | None = None
+    timestamp_range: str | None = None
+
+
+class SearchResponse(BaseModel):
+    query: str
+    found: bool
+    results: list[SearchResultResponse]

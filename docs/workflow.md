@@ -1,7 +1,7 @@
 # Workflow Guide — Lenny Growth Assistant
 
 **Timeline:** 3 days (due Aug 2, 2026 EOD)
-**Status:** Phases 0, 1, and 2 complete. Phase 3 in progress — harness built and wired with zero tools registered (by design; see below); Phase 4 (RAG ingestion/retrieval) is next before skills/tools can be real.
+**Status:** Phases 0–2 complete. Phase 3 complete. Phase 4A complete and verified against a live Postgres+Ollama pair (migrations applied, real corpus ingested, pgvector integration tests green). Phase 4B complete: real skill bodies, `tool_adapters.py`, harness extended to register tools. Most of Phase 6 (tool registration + Ollama verification) was pulled forward and done alongside 4B — Anthropic-side tool-choice verification is the one item still open, blocked on an API key. Phase 5's checklist is satisfied by the same 4B work.
 **Architecture note (2026-07-30):** Phase 3 and Phase 6 below were rewritten after an architecture correction — the project builds on the Claude Agent SDK as its harness rather than a hand-written provider hierarchy + router. Nothing in completed Phases 0–2 is affected; this only changes work that hadn't started yet. See `docs/ARCHITECTURE.md` §0 and §5–§6, and `docs/design.md`, for the full rationale.
 **Purpose of this doc:** the single phase plan and checklist for this build — a practical, checkable build order that protects the PRD's Day 1 goal, bakes in the named grading criteria (error handling, testing, routing) as you go instead of at the end, and matches `ARCHITECTURE.md`'s layering. Check items off as you go — don't skip to Phase 9 items early, and don't defer them either.
 
@@ -130,15 +130,15 @@ There is **no `BaseProvider`, no `AnthropicProvider`/`OpenAIProvider`/`OllamaPro
   - `anthropic` → Anthropic default base URL, `claude-sonnet-*`, requires `ANTHROPIC_API_KEY`
   - `ollama` → `http://localhost:11434`, a locally-pulled model, dummy API key (required by the client, ignored by Ollama)
 - [x] `SendMessageUseCase` calls `IAgentHarness.run(...)` in place of the Phase 2 dummy response
-- [ ] Confirm the Node.js / Claude Code CLI runtime prerequisite for the Python Agent SDK is met locally; note the exact requirement for the README (don't guess — check the current Agent SDK docs)
-- [ ] `rag_skill.py`/`ship30_skill.py`/`artifact_skill.py` currently exist only as `NotImplementedError` placeholders (see `docs/design.md`) — real bodies land in Phase 5, after Phase 4 retrieval exists
+- [x] Confirm the Node.js / Claude Code CLI runtime prerequisite for the Python Agent SDK is met locally — `claude` CLI 2.1.220 present and used by the SDK's subprocess transport; still owed a README write-up.
+- [x] `rag_skill.py`/`ship30_skill.py`/`artifact_skill.py` — real bodies implemented in Phase 4B (see below).
 
 ### ⚠ Grading criterion — build here, not in Phase 9
 - [x] **Missing `ANTHROPIC_API_KEY` when `LLM_PROVIDER=anthropic` → fail fast at startup**, naming the missing env var. Do this in config validation, not mid-conversation.
 - [x] **Ollama unreachable / request timeout** → chat-visible error ("Local model didn't respond — is Ollama running?"), configurable timeout (default 30s). This is harness-layer code — write it now while you're inside `agent_sdk_harness.py`.
 
 ### Test Ollama now, not later
-- [ ] Run this harness (no tools yet, plain Q&A) against a local Ollama model before moving to Phase 4/5. This is the earliest point to catch an Agent-SDK-vs-Ollama incompatibility (per PRD §9). If something specific breaks, fix it at the config/feature level and log it in `docs/agent-transcripts/` — don't write a second harness implementation. **Not yet run** — needs a local Ollama instance with a model pulled; do this before starting Phase 4.
+- [x] Run this harness against a local Ollama model. Plain (toolless) conversation confirmed working after three config fixes found in the process (`tools=[]`, `permission_mode="bypassPermissions"`, thinking disabled for Ollama — see `docs/design.md`/build-log). Tool-calling reliability specifically (once tools existed, Phase 4B/6) turned out to be a real per-model limitation with the locally-pulled `qwen3:8b` — logged, not silently routed around; see build-log's "Ollama tool-calling verification" entry.
 
 ### Testing (write alongside)
 - [x] Mock `IAgentHarness` in `tests/unit/` for `SendMessageUseCase` tests — no network, no SDK.
@@ -157,20 +157,24 @@ There is **no `BaseProvider`, no `AnthropicProvider`/`OpenAIProvider`/`OllamaPro
 Markdown transcripts → Parser → Chunker → Embeddings → pgvector → Retriever
 ```
 
-- [ ] Parser (`infrastructure/ingestion/parser.py`)
-- [ ] Chunker (`infrastructure/ingestion/chunker.py`)
-- [ ] Embedder (`infrastructure/ingestion/embedder.py`) — uses the local embedding model decided in Phase 0
-- [ ] Loader (`infrastructure/ingestion/loader.py`) → pgvector via `infrastructure/vectorstore/pgvector_store.py`
-- [ ] Retriever (`infrastructure/vectorstore/retriever.py`)
-- [ ] Standalone CLI entrypoint: `scripts/run_ingestion.py` (zero business logic — just calls into `infrastructure/ingestion/`, per ARCHITECTURE.md §5)
+- [x] Parser (`infrastructure/ingestion/parser.py`)
+- [x] Chunker (`infrastructure/ingestion/chunker.py`)
+- [ ] ~~Embedder (`infrastructure/ingestion/embedder.py`)~~ — intentionally left as a stub. Embedding lives solely in `infrastructure/vectorstore/embeddings.py` (per `design.md`'s existing "vectorstore/embeddings.py calls Ollama's /api/embeddings" decision); `IVectorStore.add_documents()` embeds internally, so ingestion never needs its own embedding call, and a second one would either duplicate the Ollama call or require a forbidden ingestion→vectorstore cross-import. Documented in `design.md`.
+- [x] Loader (`infrastructure/ingestion/loader.py`) — thin parser+chunker orchestration; does not call pgvector directly (would be a forbidden cross-import), the composition layer (API router / CLI script) wires its output to `IngestDocumentsUseCase`
+- [x] Embeddings (`infrastructure/vectorstore/embeddings.py`) — `OllamaEmbedder`, always local regardless of `LLM_PROVIDER`
+- [x] Retriever (`infrastructure/vectorstore/retriever.py`) — pure ranking/citation-shaping, no DB/HTTP
+- [x] pgvector store (`infrastructure/vectorstore/pgvector_store.py`) — owns its own engine + `documents` table model, independent of `infrastructure/database/`
+- [x] Standalone CLI entrypoint: `scripts/run_ingestion.py` (zero business logic — just calls into `infrastructure/ingestion/`, per ARCHITECTURE.md §5)
+- [x] `POST /api/ingest`, `POST /api/search` — testing surface ahead of Phase 5/6 tools, per PRD's Day 1 target ("a grounded answer... from the CLI or a bare API endpoint")
 
 ### ⚠ Grading criterion
-- [ ] **Retrieval returns no relevant chunks → model must say so, not guess.** Build the "decline gracefully" behavior into the retriever's contract now (e.g. return empty + a flag) so the RAG skill in Phase 5 has something to check.
+- [x] **Retrieval returns no relevant chunks → model must say so, not guess.** `RetrievedContext.found` (empty results → `False`) is the "decline gracefully" contract the Phase 5 RAG skill will check.
 
 ### Testing (write alongside)
-- [ ] `tests/unit/` — retrieval function against a small fixture set of transcript chunks (named explicitly in PRD §8).
+- [x] `tests/unit/` — parser, chunker, embeddings (mocked HTTP), retriever ranking, both use cases with a fake `IVectorStore`.
+- [x] `tests/integration/` — `/api/ingest`/`/api/search` with a fake vectorstore; the real-Postgres `pgvector_store.py` suite (4 tests) now verified passing against a live Postgres+pgvector container, not just skipping cleanly.
 
-**Deliverable:** `retrieve(query)` returns relevant chunks, provable from a bare script/CLI before the chat UI exists. **This satisfies the PRD's Day 1 target.**
+**Deliverable:** `retrieve(query)` returns relevant chunks, provable from a bare script/CLI before the chat UI exists. **This satisfies the PRD's Day 1 target.** Verified against a live Postgres + Ollama (`nomic-embed-text`) pair: migrations applied, 7 real episodes from the ChatPRD/lennys-podcast-transcripts corpus ingested, direct `PgVectorStore.search()` calls return relevant ranked chunks for representative growth/product queries.
 
 **Commit:** `feat: implement document ingestion and retrieval`
 
@@ -187,8 +191,8 @@ Question → Retriever → grounded context + citations (returned as the tool re
      Model composes the cited answer, constrained by the §11.5 RAG prompt
      ("answer only from context, else decline")
 ```
-- [ ] `rag_skill.py` returns retrieved chunks + citations + a no-context flag — no model call inside the skill
-- [ ] No-chunks-found flag from Phase 4 is threaded through so the model can decline honestly
+- [x] `rag_skill.py` returns retrieved chunks + citations + a no-context flag — no model call inside the skill
+- [x] No-chunks-found flag from Phase 4 is threaded through so the model can decline honestly
 
 ### Ship30 Skill
 ```
@@ -196,7 +200,7 @@ Topic → Retriever (broader pull across relevant episodes) → grounded materia
                               │
      Model writes the ~1250-word essay, constrained by the §11.5 Ship30 structure
 ```
-- [ ] `ship30_skill.py` returns the retrieved material — the essay text itself is the model's own generation in its next turn, not something the skill produces
+- [x] `ship30_skill.py` returns the retrieved material — the essay text itself is the model's own generation in its next turn, not something the skill produces
 
 ### Artifact Skill
 ```
@@ -204,10 +208,10 @@ Model composes the Markdown/HTML/CSS and its type as part of the tool call
                               │
      `artifact_skill.py` validates the type, persists {session_id, type, content}, returns artifact_id
 ```
-- [ ] `artifact_skill.py` is persistence + validation only — it does not generate content
+- [x] `artifact_skill.py` is persistence + validation only — it does not generate content
 
 ### ⚠ Grading criterion
-- [ ] Confirm each skill, tested in isolation (mock `IVectorStore`, fixture chunks, a fake tool-call payload), produces the data the PRD's named success criteria depend on — grounded chunks + citations for RAG, sufficient material for a structurally-correct Ship30 essay, correct validation/persistence for artifacts.
+- [x] Confirm each skill, tested in isolation (mock `IVectorStore`, fixture chunks, a fake tool-call payload), produces the data the PRD's named success criteria depend on — grounded chunks + citations for RAG, sufficient material for a structurally-correct Ship30 essay, correct validation/persistence for artifacts. See `tests/unit/test_rag_skill.py`, `test_ship30_skill.py`, `test_artifact_skill.py`.
 
 **Deliverable:** Each skill callable and correct on its own (a test script is enough — no harness or Swagger UI needed), independent of the agent harness.
 
@@ -223,19 +227,19 @@ Model composes the Markdown/HTML/CSS and its type as part of the tool call
 User Message → Harness (Claude Agent SDK) → model picks a tool → tool executes → model composes final reply
 ```
 
-- [ ] `tool_adapters.py` in `infrastructure/harness/` — registers `rag_query`, `write_ship30_essay`, `generate_artifact` as SDK tools, each calling straight into its Phase 5 skill callable
-- [ ] `agent_sdk_harness.py` is updated to pass the registered tools into the loop (Phase 3 ran with none)
-- [ ] Verify tool-choice works correctly against **both** Anthropic and Ollama — same tool definitions, same code, only the config from Phase 3 differs
+- [x] `tool_adapters.py` in `infrastructure/harness/` — registers `rag_query`, `write_ship30_essay`, `generate_artifact` as SDK tools, each calling straight into its Phase 5 skill callable
+- [x] `agent_sdk_harness.py` is updated to pass the registered tools into the loop (Phase 3 ran with none)
+- [~] Verify tool-choice works correctly against **both** Anthropic and Ollama — Ollama tested (see below); Anthropic not yet tested this session (no API key available).
 
 ### ⚠ Grading criterion — this is "the agent decides which skill to use"
-- [ ] Confirm the model's tool choice is correct for a RAG question, a Ship30 request, and an artifact request, on both providers. This is the actual grading criterion — not a classifier's accuracy.
-- [ ] **Tool raises or returns malformed output** → caught in `tool_adapters.py`, returned to the loop as a `tool_result` error so the model can recover; enforce an iteration cap so a bad loop can't run away. Never surface an SDK stack trace to the user.
+- [~] Confirm the model's tool choice is correct for a RAG question, a Ship30 request, and an artifact request, on both providers. **Ollama (`qwen3:8b`): tool wiring confirmed correct (SDK registers and connects the MCP server; the CLI's own built-in tools correctly disabled), but the model itself does not reliably emit tool calls even when explicitly instructed to — a real, investigated model-capability limitation, not a wiring bug. See build-log's "Ollama tool-calling verification" entry for the full diagnostic and a recommendation to try a model Ollama documents as tool-calling-capable.** Anthropic: not yet tested (no API key this session) — expected lower-risk per PRD §9.
+- [x] **Tool raises or returns malformed output** → caught in `tool_adapters.py`, returned to the loop as a `tool_result` error so the model can recover (verified with unit tests injecting raising fakes); iteration cap enforced via `ClaudeAgentOptions.max_turns=8`. Never surfaces an SDK stack trace to the user.
 
 ### Testing (write alongside)
-- [ ] `tests/unit/` — `tool_adapters.py` error handling: a skill exception becomes a `tool_result` error, not a propagated crash; iteration cap holds.
-- [ ] Manual check against Ollama specifically here, if not already confirmed clean in Phase 3 with tools now in play — tool-calling reliability with tools registered is a different test than the bare Q&A check from Phase 3.
+- [x] `tests/unit/` — `tool_adapters.py` error handling: a skill exception becomes a `tool_result` error, not a propagated crash (`test_tool_adapters.py`); iteration cap set via `max_turns`.
+- [x] Manual check against Ollama with tools registered — see the "Ollama tool-calling verification" build-log entry above; found real config bugs (fixed) and one model-capability limitation (logged).
 
-**Deliverable:** User doesn't choose the skill; the model does, via the SDK's own loop — provable on both Anthropic and Ollama with the identical tool set.
+**Deliverable:** User doesn't choose the skill; the model does, via the SDK's own loop. Confirmed on Ollama (mechanically — the harness routes correctly to whichever tool the model calls; `qwen3:8b`'s own tool-calling reliability is the open item). Not yet confirmed on Anthropic.
 
 **Commit:** `feat: register skills as harness tools`
 

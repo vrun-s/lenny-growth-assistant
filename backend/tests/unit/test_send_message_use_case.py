@@ -51,10 +51,10 @@ class FakeMessageRepository(IMessageRepository):
 class FakeAgentHarness(IAgentHarness):
     def __init__(self, response_text: str = FAKE_ASSISTANT_RESPONSE) -> None:
         self.response_text = response_text
-        self.calls: list[tuple[list[Message], str]] = []
+        self.calls: list[tuple[list[Message], str, UUID]] = []
 
-    def run(self, history: list[Message], user_message: str) -> AgentResult:
-        self.calls.append((history, user_message))
+    def run(self, history: list[Message], user_message: str, session_id: UUID) -> AgentResult:
+        self.calls.append((history, user_message, session_id))
         return AgentResult(text=self.response_text)
 
 
@@ -124,8 +124,8 @@ def test_harness_receives_prior_history_not_including_the_new_message():
     use_case.execute(session.id, "first")
     use_case.execute(session.id, "second")
 
-    first_call_history, first_call_message = harness.calls[0]
-    second_call_history, second_call_message = harness.calls[1]
+    first_call_history, first_call_message, _ = harness.calls[0]
+    second_call_history, second_call_message, _ = harness.calls[1]
 
     assert first_call_history == []
     assert first_call_message == "first"
