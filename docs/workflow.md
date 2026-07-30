@@ -1,7 +1,8 @@
 # Workflow Guide — Lenny Growth Assistant
 
 **Timeline:** 3 days (due Aug 2, 2026 EOD)
-**Purpose of this doc:** a practical, checkable build order that protects the PRD's Day 1 goal, bakes in the named grading criteria (error handling, testing, routing) as you go instead of at the end, and matches `ARCHITECTURE.md`'s layering. Check items off as you go — don't skip to Phase 9 items early, and don't defer them either.
+**Status:** Phases 0 and 1 complete. Phase 2 is next.
+**Purpose of this doc:** the single phase plan and checklist for this build — a practical, checkable build order that protects the PRD's Day 1 goal, bakes in the named grading criteria (error handling, testing, routing) as you go instead of at the end, and matches `ARCHITECTURE.md`'s layering. Check items off as you go — don't skip to Phase 9 items early, and don't defer them either.
 
 ---
 
@@ -44,19 +45,19 @@ If a requested change affects another milestone, explain the tradeoff before pro
 **Goal:** Everything runs.
 
 ### Backend
-- [ ] FastAPI boots
-- [ ] Config loads (`backend/app/core/config.py`, Pydantic settings)
-- [ ] Logging works (`backend/app/core/logging.py`)
-- [ ] `/health` endpoint responds
+- [x] FastAPI boots
+- [x] Config loads (`backend/app/core/config.py`, Pydantic settings)
+- [x] Logging works (`backend/app/core/logging.py`)
+- [x] `/health` endpoint responds
 
 ### Frontend
-- [ ] React boots (Vite)
-- [ ] Routing works (`/` and `/settings`)
-- [ ] API client exists (`frontend/src/core/api_client.ts`)
+- [x] React boots (Vite)
+- [x] Routing works (`/` and `/settings`)
+- [x] API client exists (`frontend/src/core/api_client.ts`)
 
 ### 🔒 Decide now
-- [ ] **Embedding provider** — this must be decided in Phase 0, not Phase 4. §7.1's offline requirement (`LLM_PROVIDER=ollama`, no internet after initial pull) breaks silently if embeddings are generated via a cloud API while chat runs locally. Pick a **local embedding model** (e.g. `nomic-embed-text` via Ollama, or a local `sentence-transformers` model) so the same embedding path works regardless of `LLM_PROVIDER`. Write the decision into `docs/design.md`.
-- [ ] Confirm `docker-compose.yml` brings up Postgres+pgvector so Track B isn't blocked waiting on Phase 1's ORM work.
+- [x] **Embedding provider** — this must be decided in Phase 0, not Phase 4. §7.1's offline requirement (`LLM_PROVIDER=ollama`, no internet after initial pull) breaks silently if embeddings are generated via a cloud API while chat runs locally. Pick a **local embedding model** (e.g. `nomic-embed-text` via Ollama, or a local `sentence-transformers` model) so the same embedding path works regardless of `LLM_PROVIDER`. Write the decision into `docs/design.md`.
+- [x] Confirm `docker-compose.yml` brings up Postgres+pgvector so Track B isn't blocked waiting on Phase 1's ORM work. *(Verified against a live container once Docker Desktop was started — see `agent-transcripts/build-log.md`.)*
 
 **Deliverable:** `backend/` and `frontend/` both start successfully; embedding provider decision is written down.
 
@@ -68,17 +69,17 @@ If a requested change affects another milestone, explain the tradeoff before pro
 
 **Goal:** Store conversations.
 
-- [ ] Implement domain entities: `Session`, `Message`, `Artifact`, `Document` (pure dataclasses in `domain/entities/` — no SQLAlchemy/Pydantic inheritance, per ARCHITECTURE.md §3.1)
-- [ ] Create ORM models (`infrastructure/database/orm_models.py`)
-- [ ] Create repositories (`infrastructure/database/repositories/`) implementing the `IRepository` port
-- [ ] Alembic migration
-- [ ] API: `POST /sessions`, `GET /sessions`, `DELETE /sessions/{id}`
+- [x] Implement domain entities: `Session`, `Message`, `Artifact`, `Document` (pure dataclasses in `domain/entities/` — no SQLAlchemy/Pydantic inheritance, per ARCHITECTURE.md §4.1)
+- [x] Create ORM models (`infrastructure/database/orm_models.py`)
+- [x] Create repositories (`infrastructure/database/repositories/`) implementing the `IRepository` port
+- [x] Alembic migration
+- [x] API: `POST /sessions`, `GET /sessions`, `DELETE /sessions/{id}`
 
 ### ⚠ Grading criterion — start now, don't defer
-- [ ] **DB connection failure → 503.** Wire this in now while you're already touching the connection/repository layer, not as a Phase 9 add-on. API returns 503 with a clear error body on DB failure; note in `docs/design.md` that the frontend will show a banner (built in Phase 7) rather than a blank chat.
+- [x] **DB connection failure → 503.** Wire this in now while you're already touching the connection/repository layer, not as a Phase 9 add-on. API returns 503 with a clear error body on DB failure; note in `docs/design.md` that the frontend will show a banner (built in Phase 7) rather than a blank chat.
 
 ### Testing (write alongside, not later)
-- [ ] `tests/unit/` — repository CRUD round-trips against a test DB or fixtures.
+- [x] `tests/unit/` — repository CRUD round-trips against a test DB or fixtures.
 
 **Deliverable:** Can create and retrieve sessions.
 
@@ -141,7 +142,7 @@ Markdown transcripts → Parser → Chunker → Embeddings → pgvector → Retr
 - [ ] Embedder (`infrastructure/ingestion/embedder.py`) — uses the local embedding model decided in Phase 0
 - [ ] Loader (`infrastructure/ingestion/loader.py`) → pgvector via `infrastructure/vectorstore/pgvector_store.py`
 - [ ] Retriever (`infrastructure/vectorstore/retriever.py`)
-- [ ] Standalone CLI entrypoint: `scripts/run_ingestion.py` (zero business logic — just calls into `infrastructure/ingestion/`, per ARCHITECTURE.md §5.4)
+- [ ] Standalone CLI entrypoint: `scripts/run_ingestion.py` (zero business logic — just calls into `infrastructure/ingestion/`, per ARCHITECTURE.md §5)
 
 ### ⚠ Grading criterion
 - [ ] **Retrieval returns no relevant chunks → model must say so, not guess.** Build the "decline gracefully" behavior into the retriever's contract now (e.g. return empty + a flag) so the RAG skill in Phase 5 has something to check.
@@ -262,11 +263,11 @@ By this point, error handling and unit tests for each layer already exist (built
 ### Documentation
 - [ ] README
 - [ ] `docs/ARCHITECTURE.md` (already exists — confirm it matches what was actually built)
-- [ ] `docs/design.md` (fill in — currently a stub; should include the embedding-provider decision from Phase 0)
+- [x] `docs/design.md` (embedding-provider decision from Phase 0 recorded, plus later standing decisions)
 - [ ] Demo video
 
 ### ⚠ Grading criterion — don't reconstruct this from memory
-- [ ] `docs/agent-transcripts/` — **populate this throughout the build, not at the end.** Every time something breaks (tool-calling fails on a local model, a migration conflicts, retrieval returns nothing for a valid query), jot it down immediately with what failed and how it was fixed. Reconstructing this in Phase 9 from memory loses most of its value and its credibility.
+- [ ] `docs/agent-transcripts/build-log.md` — **populate this throughout the build, not at the end.** Every time something breaks (tool-calling fails on a local model, a migration conflicts, retrieval returns nothing for a valid query), jot it down immediately with what failed and how it was fixed. Reconstructing this in Phase 9 from memory loses most of its value and its credibility.
 
 **Deliverable:** Full demo-ready build with docs, tests, and a real (not reconstructed) failure log.
 
@@ -274,14 +275,8 @@ By this point, error handling and unit tests for each layer already exist (built
 
 ---
 
-## Things deliberately NOT happening (per ARCHITECTURE.md §5.5–5.6 and PRD scope cuts)
+## Things deliberately NOT happening
 
-- ❌ No premature optimization
-- ❌ No enterprise DI container (`container.py` removed — use FastAPI's native `Depends`)
-- ❌ No event bus, mediator, or CQRS
-- ❌ No dynamic skill registry / `BaseSkill` abstraction — router imports `RAGSkill`, `Ship30Skill`, `ArtifactSkill` directly
-- ❌ No ChromaDB or second vector store — pgvector only
-- ❌ No Monaco Editor — `react-markdown` + sandboxed iframe instead
-- ❌ No chat renaming feature
+See the canonical list in `CLAUDE.md` → "Scope boundaries — do not build these". It is maintained in one place so it cannot drift; don't restate it here.
 
 You're building a working application first, then layering on intelligence — but error handling, tests, and the agent-transcripts log are built **as you go**, because all three are named grading criteria and none of them survive being deferred to a Phase 9 crunch on a 3-day clock.

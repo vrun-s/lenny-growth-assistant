@@ -2,6 +2,8 @@
 
 Guidance for Claude Code (and any other agent) working in this repository. This file distills `docs/ARCHITECTURE.md` and `docs/PRD.md` — read those for full detail; this is the operational summary to follow on every change.
 
+It lives at the repo root because that is the only location Claude Code loads automatically. Do not move it into `docs/`.
+
 ---
 
 ## Project in one paragraph
@@ -35,16 +37,19 @@ DOMAIN (entities, port interfaces) — zero framework dependencies
 ## Repo layout (follow exactly — see ARCHITECTURE.md §3 for the full tree)
 
 ```
+CLAUDE.md                this file — must stay at the repo root
 docs/                    markdown only, no code
-deployment/              Docker/compose, no app code
-scripts/                 CLI entrypoints only (run_ingestion.py, seed_database.py)
+  agent-transcripts/     required deliverable: build log of failures & fixes
+deployment/              docker-compose + init SQL, no app code
+scripts/                 CLI entrypoints only (run_ingestion.py)
 backend/app/
-  core/                  config, logging, constants — stdlib + Pydantic only
+  core/                  config, logging — stdlib + Pydantic only
   domain/
     entities/            Session, Message, Artifact, Document (pure dataclasses)
     interfaces/          repositories.py, llm_provider.py, vectorstore.py (ABCs)
   application/
     use_cases/           create_session, send_message, write_ship30, generate_artifact
+                         (only where real orchestration exists — see ARCHITECTURE.md §4.6)
     skills/              rag_skill.py, ship30_skill.py, artifact_skill.py, router.py
   infrastructure/
     api/                 FastAPI routers + deps.py (DI happens here)
@@ -113,7 +118,9 @@ Build each of these where the corresponding feature is built, not retrofitted la
 
 ## Scope boundaries — do not build these
 
-**Non-goals (PRD §2):** authentication/multi-user, billing, image generation, collaborative editing, production-scale deployment.
+*This is the canonical list. `docs/ARCHITECTURE.md` and `docs/workflow.md` point here rather than restating it — if something changes, change it here only.*
+
+**Non-goals (PRD §2):** authentication/multi-user, billing, image generation, collaborative editing, production-scale deployment (no Dockerfiles — `deployment/` holds the local compose stack only).
 
 **Explicit v1→v2 cuts — do not reintroduce unless asked:**
 - Chat renaming (new/list/delete is sufficient)
@@ -121,7 +128,7 @@ Build each of these where the corresponding feature is built, not retrofitted la
 - ChromaDB / second vector store (pgvector only)
 - Full mid-stream artifact detection (artifacts render only once a message finishes)
 
-If tempted to add abstraction (DI container, event bus, CQRS, plugin/skill registry) — don't. ARCHITECTURE.md explicitly removed these for a 3-day, 3-skill scope.
+If tempted to add abstraction (DI container, event bus, CQRS, plugin/skill registry, `BaseSkill`) — don't. ARCHITECTURE.md explicitly removed these for a 3-day, 3-skill scope. The same test applies to use cases: a class that only forwards one call to one repository is indirection, not architecture (ARCHITECTURE.md §4.6).
 
 ---
 
@@ -141,6 +148,7 @@ If tempted to add abstraction (DI container, event bus, CQRS, plugin/skill regis
 2. **No new abstractions without cause.** This is a 3-skill, solo, 3-day build — resist adding registries, containers, or generic frameworks "for future flexibility."
 3. **Ports before adapters.** If a use case or skill needs a new capability (new DB query, new provider call), define/extend the interface in `domain/interfaces/` first, then implement it in `infrastructure/`.
 4. **Error handling is part of the feature, not a follow-up.** See table above — implement it where it's listed, in the same commit as the feature.
-5. **Log failures as you hit them** in `docs/agent-transcripts/` — this is a required deliverable and loses value if reconstructed from memory later.
+5. **Log failures as you hit them** in `docs/agent-transcripts/build-log.md` — this is a required deliverable and loses value if reconstructed from memory later.
 6. **Check `docs/design.md` for standing decisions** (e.g. embedding model choice) before re-deciding something already settled.
 7. **When scope and timeline conflict, cut scope — and document the cut** in `docs/PRD.md`'s cuts table, the same way v1.0→v2.0 cuts were documented.
+8. **Track progress in `docs/workflow.md`** — it is the single phase plan and checklist. Keep its checkboxes current; there is no second copy to sync.

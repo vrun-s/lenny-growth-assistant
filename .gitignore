@@ -21,4 +21,5 @@ build/
 .idea/
 .DS_Store
 
-requirementnotion.md
+# Private assignment brief — must not reach the public submission repo
+docs/requirementnotion.md

@@ -39,12 +39,12 @@ The architecture organizes the codebase into concentric layers where dependencie
 * **Forbidden Dependencies:** Must not contain source code, imports, or executable scripts.
 
 #### `deployment/`
-* **Responsibility:** Contains DevOps configurations, Dockerfiles, and orchestration manifests (e.g. docker-compose, Kubernetes specs) for runtime environments.
+* **Responsibility:** Contains the local runtime orchestration (`docker-compose.yml` for Postgres + pgvector) and its init scripts. Production images are out of scope — PRD §2 lists production-scale deployment as a non-goal.
 * **Allowed Dependencies:** Internal configuration templates.
 * **Forbidden Dependencies:** Must not contain application source code or run imports.
 
 #### `scripts/`
-* **Responsibility:** Dedicated CLI entrypoints for administrative and operational tasks (e.g. launching ingestion, seeding databases).
+* **Responsibility:** Dedicated CLI entrypoints for administrative and operational tasks (e.g. launching ingestion).
 * **Allowed Dependencies:** `backend/app/core/`, `backend/app/infrastructure/`, `backend/app/application/`, and `backend/app/domain/`.
 * **Forbidden Dependencies:** Must not contain core business algorithms or raw parser logic (all ingestion details belong in the infrastructure layer).
 
@@ -63,9 +63,10 @@ The architecture organizes the codebase into concentric layers where dependencie
 ### 2.2 Backend Architectural Sub-folders
 
 #### `backend/app/core/`
-* **Responsibility:** Manages global application boot processes, environment configuration parameters, central logging, and system-wide constants.
+* **Responsibility:** Manages global application boot processes, environment configuration parameters, and central logging.
 * **Allowed Dependencies:** Standard Python library, environment configurations, and Pydantic.
 * **Forbidden Dependencies:** Must not depend on or import from `application/`, `domain/`, or `infrastructure/` packages.
+* **Note:** `core/` is a dependency-free shared kernel — because it imports nothing from the other layers, **any** layer may import *from* it without creating a cycle.
 
 #### `backend/app/domain/`
 * **Responsibility:** Represents core business concepts (Entities) and boundaries (Ports). It has **zero dependencies** on third-party frameworks.
@@ -86,21 +87,22 @@ The architecture organizes the codebase into concentric layers where dependencie
 
 ## 3. Visual Repository Tree
 
-This tree represents the final folder structure that tools, developer agents, and humans must follow when introducing code changes:
+This tree represents the target folder structure that tools, developer agents, and humans must follow when introducing code changes. Files marked *(planned)* do not exist yet and are listed to fix their eventual location, not to imply they are built:
 
 ```text
 lenny-growth-assistant/
+├── CLAUDE.md                              # Agent operating rules (must sit at the repo root to load)
 ├── docs/                                  # Project documentation & contracts
 │   ├── PRD.md
 │   ├── ARCHITECTURE.md
-│   └── design.md
-├── deployment/                            # DevOps, staging configurations, and Docker assets
-│   ├── docker-compose.yml                 # Local environments orchestrator
-│   ├── Dockerfile.backend                 # Multi-stage image build for Python/FastAPI
-│   └── Dockerfile.frontend                # Multi-stage image build for React static assets
+│   ├── design.md
+│   ├── workflow.md                        # Phased build plan + checklist
+│   └── agent-transcripts/                 # Required deliverable: build log of failures & fixes
+├── deployment/                            # Local runtime orchestration
+│   ├── docker-compose.yml                 # Postgres + pgvector
+│   └── init/enable-pgvector.sql           # CREATE EXTENSION, run on first container start
 ├── scripts/                               # CLI entrypoints (Contains ONLY runners, NO business logic)
-│   ├── run_ingestion.py                   # Ingestion pipeline runner CLI
-│   └── seed_database.py                   # Dev sandbox database seeder CLI
+│   └── run_ingestion.py                   # Ingestion pipeline runner CLI
 ├── backend/                               # Python Clean Architecture backend root
 │   ├── app/
 │   │   ├── __init__.py
@@ -108,8 +110,7 @@ lenny-growth-assistant/
 │   │   │
 │   │   ├── core/                          # System Configuration & Bootstrapping
 │   │   │   ├── config.py                  # Pydantic environment configurations
-│   │   │   ├── logging.py                 # Central logger initialization
-│   │   │   └── constants.py               # Global system constants & errors
+│   │   │   └── logging.py                 # Central logger initialization
 │   │   │
 │   │   ├── domain/                        # Layer 1: Core Domain Rules (Purity Layer)
 │   │   │   ├── entities/                  # Pure python dataclasses representing core entities
@@ -123,11 +124,11 @@ lenny-growth-assistant/
 │   │   │       └── vectorstore.py         # Vector Index Adapter contract
 │   │   │
 │   │   ├── application/                   # Layer 2: Business Use Cases & Skills Orchestration
-│   │   │   ├── use_cases/                 # Single-responsibility orchestrators (Use Cases)
+│   │   │   ├── use_cases/                 # Orchestrators that carry real logic (see §4.6)
 │   │   │   │   ├── create_session.py
-│   │   │   │   ├── send_message.py
-│   │   │   │   ├── write_ship30.py
-│   │   │   │   └── generate_artifact.py
+│   │   │   │   ├── send_message.py        # (planned)
+│   │   │   │   ├── write_ship30.py        # (planned)
+│   │   │   │   └── generate_artifact.py   # (planned)
 │   │   │   └── skills/                    # Isolated AI Agent Skills (Directly orchestrated by the Router)
 │   │   │       ├── rag_skill.py           # Knowledge base query workflow
 │   │   │       ├── ship30_skill.py        # Essay structure compiler workflow
@@ -137,13 +138,14 @@ lenny-growth-assistant/
 │   │   └── infrastructure/                # Layer 3: Details & Adapters (Concrete Details)
 │   │       ├── api/                       # API HTTP delivery layer (FastAPI endpoints)
 │   │       │   ├── v1/
-│   │       │   │   ├── chat_router.py
 │   │       │   │   ├── session_router.py
-│   │       │   │   └── artifact_router.py
-│   │       │   └── deps.py                # FastAPI dependency injection definitions
+│   │       │   │   ├── schemas.py         # Pydantic request/response models
+│   │       │   │   ├── chat_router.py     # (planned)
+│   │       │   │   └── artifact_router.py # (planned)
+│   │       │   ├── deps.py                # FastAPI dependency injection definitions
 │   │       │   └── app.py                 # FastAPI application mount
-│   │       ├── database/                  # SQL database migrations & schemas
-│   │       │   ├── connection.py          # Session pools engine builders
+│   │       ├── database/                  # SQL database engine, models & repositories
+│   │       │   ├── connection.py          # Lazily-built engine + session factory
 │   │       │   ├── orm_models.py          # SQLAlchemy models mapping database tables
 │   │       │   └── repositories/          # Concrete adapters writing to PostgreSQL
 │   │       │       ├── session_repo.py
@@ -167,8 +169,10 @@ lenny-growth-assistant/
 │   │   ├── unit/                          # Isolated business logic unit tests
 │   │   └── integration/                   # Controllers integration tests
 │   │
-│   ├── requirements.txt
-│   └── alembic.ini
+│   ├── alembic/                           # Migration environment & versions
+│   ├── alembic.ini
+│   ├── requirements.txt                   # Runtime dependencies (pinned)
+│   └── requirements-dev.txt               # Adds pytest + httpx for the test suite
 └── frontend/                              # Frontend React app workspace root
     ├── src/
     │   ├── main.tsx
@@ -198,51 +202,43 @@ lenny-growth-assistant/
 
 ## 4. Architectural Rules (The Contract)
 
-### 3.1 Domain Purity
+### 4.1 Domain Purity
 * Files in `domain/` must remain pure Python files. They must not import FastAPI, SQLAlchemy, Alembic, or any model SDKs.
 * Domain entities must be standard Python `dataclasses` or normal classes. They must not inherit from SQLAlchemy's `Base` or Pydantic's `BaseModel`.
 
-### 3.2 Dependency Inversion (Ports & Adapters)
+### 4.2 Dependency Inversion (Ports & Adapters)
 * High-level business logic must never instantiate concrete low-level implementation details.
 * Use Cases and Skills must interact with databases, LLM engines, and vector indexes *strictly* through abstract Interface declarations (Ports).
 
-### 3.3 Database & Vector Query Isolation
+### 4.3 Database & Vector Query Isolation
 * Direct database queries or ORM models must never appear outside the `infrastructure/database/` directory.
 * Direct vector calculations or vector-store specific queries (e.g. pgvector operator definitions) must never appear outside the `infrastructure/vectorstore/` directory.
 
-### 3.4 Request & Response Serialization Boundary
+### 4.4 Request & Response Serialization Boundary
 * Pydantic schemas reside inside the `infrastructure/api/` layer or separate schema models. They represent serialization formats for network endpoints.
-* Use cases receive parameters as primitive types or Domain Entities and return Domain Entities. 
+* Use cases receive parameters as primitive types or Domain Entities and return Domain Entities.
+* Response models map from domain entities via `ConfigDict(from_attributes=True)` + `model_validate()`. Do not hand-write field-by-field `from_entity()` mappers.
 
-### 3.5 Dependency Injection (DI) Rule
+### 4.5 Dependency Injection (DI) Rule
 * Class dependencies must be declared in constructors (`__init__`) using type hints referencing abstract Interfaces (Ports).
-* Concrete implementations are resolved and bound dynamically at request time using FastAPI's built-in dependency injection system via `Depends` in [`backend/app/infrastructure/api/deps.py`](file:///c:/Projects/lenny-growth-assistant/backend/app/infrastructure/api/deps.py). 
+* Concrete implementations are resolved and bound dynamically at request time using FastAPI's built-in dependency injection system via `Depends` in `backend/app/infrastructure/api/deps.py`.
 * Heavy enterprise container registries are forbidden.
+
+### 4.6 Use Cases Must Earn Their Layer
+* A use case exists to hold orchestration that belongs to neither the router nor the repository — generating identity and timestamps, coordinating multiple ports, enforcing an invariant.
+* A class whose `execute()` only forwards its arguments to a single repository method is **not** a use case; it is indirection. Routers may call a repository port directly for such operations — the dependency still points inward, since routers depend on `domain/interfaces/`, never on a concrete repository class.
+* Add the use case when the logic arrives, not in anticipation of it.
 
 ---
 
-## 5. Architectural Changes & Maintainability Improvements
+## 5. Placement Decisions
 
-### 1. Moving Skills to the Application Layer
-* **Rationale:** AI Skills (RAG, Essay Writing, Artifact Generation) represent specific business goals and orchestration. They are not technical infrastructure elements like database tables or socket connections.
-* **Benefit:** Grouping them alongside use cases ensures that business capabilities reside within application boundaries. This prevents domain interfaces from leaking details to infrastructure, keeps LLM orchestrations highly unit-testable without networking wrappers, and makes adding new capabilities as simple as adding a new Skill file under `application/skills/`.
+Three placements are non-obvious enough to record; the rest follow from §1–§4.
 
-### 2. Replacing Features with Use Cases
-* **Rationale:** UI structures or page visual components change rapidly, while the backend's core operations are stable.
-* **Benefit:** Reorienting backend operations around specific Use Cases (e.g., `send_message.py`) conforms to the Single Responsibility Principle. Each use case organizes exactly one operational flow, making the backend codebase easier to read, trace, and debug for both humans and AI models.
+**Skills live in `application/`, not `infrastructure/`.** RAG, essay writing, and artifact generation are business capabilities, not technical adapters. Placing them beside use cases keeps them unit-testable without network stubs — they reach the outside world only through `ILLMProvider` and `IVectorStore`.
 
-### 3. Adding a Vector Store Layer
-* **Rationale:** Vector stores (pgvector, pinecone, chroma) are infrastructure details. Embedding calculations and vector-specific operators are technical details.
-* **Benefit:** Consolidating embedding generation, retrieval queries, and vector database drivers in `infrastructure/vectorstore/` separates retrieval execution from use cases. The RAG skill inside `application/skills/` uses a pure interface port `IVectorStore`, allowing developer teams to migrate from pgvector to other services by editing only the infrastructure layer.
+**Vector operations live in `infrastructure/vectorstore/`.** Embedding generation and pgvector operators are technical details. The RAG skill depends on the `IVectorStore` port, so swapping pgvector for another store touches only the infrastructure layer.
 
-### 4. Improving Ingestion Separation
-* **Rationale:** Ingestion scripts contain complex business rules for parsing, chunking, and preparing documents. When written directly in terminal scripts, this logic is difficult to test or integrate into server operations.
-* **Benefit:** Moving parsing, chunking, embedding, and loading details into `infrastructure/ingestion/` makes the code reusable. The entrypoint scripts (`scripts/run_ingestion.py` and `scripts/seed_database.py`) remain clean, command-line wrappers with zero processing logic.
+**Ingestion logic lives in `infrastructure/ingestion/`, not in `scripts/`.** Parsing, chunking, embedding, and loading are testable and reusable from the server; `scripts/run_ingestion.py` stays a thin CLI wrapper with zero processing logic.
 
-### 5. Leveraging Built-in FastAPI DI (Removal of container.py)
-* **Rationale:** Introducing an external Dependency Injection framework adds unnecessary configuration boilerplate for an application of this scale.
-* **Benefit:** Using FastAPI's native `Depends` system in `api/deps.py` accomplishes DI with zero extra packages, uses standard Python type hints, and integrates natively with routers.
-
-### 6. Lean Skills (Removal of BaseSkill and Skill Registry)
-* **Rationale:** Having only three skills means abstractions like `BaseSkill` and a dynamic `skills/registry.py` create unnecessary structural bloat.
-* **Benefit:** The `router.py` can directly import and call `RAGSkill`, `Ship30Skill`, and `ArtifactSkill`. This simplifies debugging and navigation, keeping the codebase practical and easy to build in a 3-day assignment.
+For the list of abstractions deliberately **not** built (DI container, `BaseSkill`, skill registry, second vector store), see the single canonical list in `CLAUDE.md` → "Scope boundaries". It is not repeated here.

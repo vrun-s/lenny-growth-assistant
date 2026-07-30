@@ -37,3 +37,31 @@ Standing decisions that should not be re-litigated per feature. If a decision ch
 **Why:** Avoids a separate `CREATE EXTENSION` migration step before Alembic can run, and avoids maintaining a custom Postgres image — `pgvector/pgvector` is the upstream-maintained image for this exact use case.
 
 **Local credentials** (`lenny` / `lenny` / db `lenny_growth_assistant`) are dev-only defaults, not meant to be reused anywhere else — this is a local-first evaluation project, not a deployed service.
+
+---
+
+## Use cases are added when they hold logic, not by default (2026-07-30)
+
+**Decision:** A use case class exists only where there is orchestration to hold — generating identity/timestamps, coordinating more than one port, or enforcing an invariant. Where a router operation is a straight pass-through to a single repository method, the router calls the repository port directly. `CreateSessionUseCase` stays (it mints the UUID, timestamps, and default title); `ListSessionsUseCase` and `DeleteSessionUseCase` were removed as pure forwarding.
+
+**Why:** Both removed classes were a constructor plus a one-line `execute()` that returned `self._repo.<same method>(...)`. That is indirection, not a layer — it costs a file, an import, and a router-side instantiation to buy nothing, and it makes the genuinely-useful `CreateSessionUseCase` harder to notice. The dependency rule is unaffected: routers depend on `domain/interfaces/`, never on a concrete repository class, so the arrow still points inward. Codified as ARCHITECTURE.md §4.6.
+
+**Revisit when:** an operation grows real logic (e.g. delete needing to cascade artifacts through a second port, or list needing pagination/filtering). Add the use case then.
+
+---
+
+## Enum columns persist values, not member names (2026-07-30)
+
+**Decision:** `MessageRole` and `ArtifactType` columns are declared with `values_callable=lambda e: [m.value for m in e]`, so Postgres stores `user`/`assistant` and `markdown`/`html`.
+
+**Why:** SQLAlchemy's `Enum` defaults to persisting the *member name*, which would have written `USER` and `MARKDOWN` — disagreeing with the schema documented in PRD §11.3, with the `str` values on the domain enums, and with whatever the API serializes. The mismatch is invisible until something compares a stored value to a literal.
+
+**Consequence:** the initial migration `f144a33b5570` was corrected in place rather than superseded, since it is the only migration and no shared environment depends on it. Anyone with a database created before this change must rebuild it (`docker compose down -v && docker compose up -d`, then `alembic upgrade head`).
+
+---
+
+## Frontend `strict` mode is on (2026-07-30)
+
+**Decision:** `"strict": true` in both `tsconfig.app.json` and `tsconfig.node.json`.
+
+**Why:** It was absent while every other strictness flag the Vite template ships (`noUnusedLocals`, `noUnusedParameters`, `erasableSyntaxOnly`, `noFallthroughCasesInSwitch`) was present — so the codebase was paying for strictness ergonomics without getting null-safety. Turning it on while the frontend is still two placeholder pages costs nothing; turning it on in Phase 7 would not.

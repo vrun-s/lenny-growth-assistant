@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from enum import Enum
 
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy import ForeignKey, Text, Uuid
@@ -11,6 +12,15 @@ from app.domain.entities.message import MessageRole
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _enum_column(enum_type: type[Enum], name: str) -> SqlEnum:
+    """Store the enum's *values* (e.g. "markdown"), not its member names.
+
+    SQLAlchemy defaults to persisting member names, which would write "MARKDOWN"
+    and disagree with the schema documented in PRD §11.3.
+    """
+    return SqlEnum(enum_type, name=name, values_callable=lambda e: [m.value for m in e])
 
 
 class Base(DeclarativeBase):
@@ -40,7 +50,9 @@ class ArtifactModel(Base):
     session_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False
     )
-    type: Mapped[ArtifactType] = mapped_column(SqlEnum(ArtifactType), nullable=False)
+    type: Mapped[ArtifactType] = mapped_column(
+        _enum_column(ArtifactType, "artifacttype"), nullable=False
+    )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(default=_utcnow)
 
@@ -54,7 +66,9 @@ class MessageModel(Base):
     session_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False
     )
-    role: Mapped[MessageRole] = mapped_column(SqlEnum(MessageRole), nullable=False)
+    role: Mapped[MessageRole] = mapped_column(
+        _enum_column(MessageRole, "messagerole"), nullable=False
+    )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     artifact_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("artifacts.id", ondelete="SET NULL"), nullable=True

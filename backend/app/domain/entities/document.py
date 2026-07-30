@@ -9,6 +9,8 @@ class Document:
     source: str
     episode: str
     chunk: str
-    embedding: list[float]
     speaker: str | None = None
     timestamp_range: str | None = None
+    # Only populated during ingestion. Retrieval returns documents for citation
+    # and has no reason to carry a 768-float vector back up through the layers.
+    embedding: list[float] | None = None
