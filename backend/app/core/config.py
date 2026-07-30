@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     log_level: str = "INFO"
     cors_origins: list[str] = ["http://localhost:5173"]
+    database_url: str = "postgresql+psycopg://lenny:lenny@localhost:5432/lenny_growth_assistant"
 
 
 @lru_cache
