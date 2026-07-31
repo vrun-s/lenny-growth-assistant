@@ -1,3 +1,6 @@
+import { XIcon } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+
 interface SettingsModalProps {
   open: boolean
   onClose: () => void
@@ -11,14 +14,9 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-zinc-900">Settings</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600"
-            aria-label="Close settings"
-          >
-            ✕
-          </button>
+          <Button type="button" variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close settings">
+            <XIcon />
+          </Button>
         </div>
         <p className="mt-4 text-sm text-zinc-500">
           Settings aren't built yet — provider selection, model, and session management are coming in a later
