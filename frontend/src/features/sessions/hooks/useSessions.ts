@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { apiClient } from '../../../core/api_client'
 import { ACTIVE_SESSION_STORAGE_KEY } from '../../../core/constants'
 import type { SessionSummary } from '../types'
@@ -33,16 +34,27 @@ export function useSessions() {
   }, [])
 
   const createSession = useCallback(async () => {
-    const session = await apiClient.post<SessionSummary>('/sessions', {})
-    setSessions((prev) => [session, ...prev])
-    setActiveSessionId(session.id)
-    localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, session.id)
-    return session
+    try {
+      const session = await apiClient.post<SessionSummary>('/sessions', {})
+      setSessions((prev) => [session, ...prev])
+      setActiveSessionId(session.id)
+      localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, session.id)
+      return session
+    } catch {
+      toast.error('Could not start a new chat. Please try again.')
+      return undefined
+    }
   }, [])
 
   const deleteSession = useCallback(
     async (id: string) => {
-      await apiClient.delete<void>(`/sessions/${id}`)
+      try {
+        await apiClient.delete<void>(`/sessions/${id}`)
+      } catch {
+        toast.error('Could not delete this chat. Please try again.')
+        return
+      }
+
       const next = sessions.filter((s) => s.id !== id)
       setSessions(next)
 

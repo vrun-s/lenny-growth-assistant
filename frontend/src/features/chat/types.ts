@@ -6,6 +6,7 @@ export interface ChatMessage {
   id: string
   role: MessageRole
   content: string
+  artifact_id: string | null
 }
 
 export interface PersistedMessage {
@@ -25,4 +26,6 @@ export interface SessionWithMessages {
 export interface ChatResponse {
   session_id: string
   assistant_message: string
+  citations: string[]
+  artifact_id: string | null
 }

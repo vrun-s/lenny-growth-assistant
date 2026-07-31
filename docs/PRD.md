@@ -325,7 +325,7 @@ All routes are mounted under a single `/api` prefix in `infrastructure/api/app.p
 | `GET /api/sessions/{id}` | Get session + messages |
 | `DELETE /api/sessions/{id}` | Delete session |
 | `POST /api/chat` | Send message, get response (harness turn) |
-| `POST /api/chat/stream` | Streaming variant |
+| `POST /api/chat/stream` | **Deferred — not implemented.** Was scoped as "if time allows" polish (§5 cuts table, workflow.md Phase 9); investigated 2026-07-31 and confirmed unbuilt on both frontend and backend. See `docs/agent-transcripts/build-log.md`. |
 | `GET /api/artifacts/{id}` | Fetch artifact |
 | `POST /api/ingest` | Run ingestion pipeline |
 

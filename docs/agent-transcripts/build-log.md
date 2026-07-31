@@ -387,5 +387,19 @@ Follow-up to the "silently wiped by the pgvector test fixture" incident above. R
 
 Root cause is now structurally closed: `test_pgvector_store.py` cannot reach the dev database even if someone reintroduces a `DELETE`-based cleanup by mistake, since it only ever sees `TEST_DATABASE_URL`'s connection, and the safety assertion catches a misconfigured `.env` before any test runs.
 
+---
+
+## Streaming (`POST /chat/stream`) — investigated, confirmed unbuilt on both ends, deliberately deferred (2026-07-31)
+
+Before starting the artifact-viewer phase, checked whether chat responses actually stream, since the frontend's `ChatWindow`/`ChatBubble` UI would need to handle it differently than a one-shot response. Verified rather than assumed, on both sides:
+
+**Frontend:** `useChatSession.ts`'s `sendMessage()` calls `apiClient.post<ChatResponse>('/chat', ...)`, awaits the full response, and appends one assistant `ChatBubble` once the whole JSON body has arrived. `api_client.ts` has no `EventSource`/`ReadableStream`/SSE handling anywhere — `get`/`post`/`delete` are all `response.json()`-based. Confirmed by reading both files directly, not inferred.
+
+**Backend:** `chat_router.py` registers exactly one route, `POST /chat` (→ `POST /api/chat`). Grepped the whole backend for `StreamingResponse`, `EventSourceResponse`, `text/event-stream`, and `chat/stream` — zero matches. `IAgentHarness.run()` returns a single `AgentResult`, not an async generator, and `AgentSdkHarness._run_async()` — despite iterating the SDK's own internal `client.receive_response()` stream — fully buffers every `TextBlock` into `text_parts` and only returns the joined string once the SDK's loop finishes. So even the one place that talks to a token-level stream throws that granularity away before it reaches the port boundary. `POST /api/chat/stream` does not exist as code anywhere in this repo.
+
+**Not a bug — matches the project's own documented scope call.** `docs/PRD.md` §5's cuts table already lists "Full streaming UX polish" as cut, replaced by "Streaming works, but artifacts render once a message finishes" — and `docs/workflow.md` Phase 9 lists "Streaming (SSE)" explicitly under Polish, tagged "if time allows." It was evidently never reached. `docs/PRD.md` §11.4's API table listed `POST /api/chat/stream` as if it existed; annotated that row as deferred, pointing back here, so the docs and the repo agree (a table entry with no corresponding route is a worse trap for the next person than an admitted gap).
+
+**Decision: leave streaming deferred, move to the artifact-viewer phase.** Building it for real would mean extending `IAgentHarness` with a streaming-capable method (a real port/domain change under CLAUDE.md §4.7's "harness owns the loop" rule), a new SSE route, and `SendMessageUseCase` handling incremental persistence of an in-flight message — not a small addition, and not what "if time allows" was scoped to cover this late in the plan. Explicitly rejected the alternative of adding a cosmetic "typing indicator" with no real streaming behind it — that's exactly the kind of polish-only change the PRD's own cuts table already deprioritizes first when time is short, and this project isn't at the cosmetic-polish stage of the plan yet. This is a deliberate scope call, not a silently-discovered gap — same standard applied to every other cut in this log.
+
 
 ---

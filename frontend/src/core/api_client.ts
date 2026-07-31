@@ -21,7 +21,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const body = await response.text().catch(() => '')
-    throw new ApiError(response.status, body || response.statusText)
+    let message = body || response.statusText
+    try {
+      const parsed = JSON.parse(body) as { detail?: string }
+      if (parsed.detail) message = parsed.detail
+    } catch {
+      // body wasn't JSON — fall back to the raw text set above
+    }
+    throw new ApiError(response.status, message)
   }
 
   if (response.status === 204) {

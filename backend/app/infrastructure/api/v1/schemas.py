@@ -3,6 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from app.domain.entities.artifact import ArtifactType
 from app.domain.entities.message import MessageRole
 
 
@@ -33,6 +34,16 @@ class MessageResponse(BaseModel):
 class SessionWithMessagesResponse(BaseModel):
     session: SessionResponse
     messages: list[MessageResponse]
+
+
+class ArtifactResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    session_id: UUID
+    type: ArtifactType
+    content: str
+    created_at: datetime
 
 
 class ChatRequest(BaseModel):
