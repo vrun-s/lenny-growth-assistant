@@ -306,6 +306,17 @@ Ran the real `AgentSdkHarness` with tools registered against local Ollama (no An
 
 **Not yet run in this session:** the same tool-choice verification against a real Anthropic key (none was available). Anthropic's own models are Claude Code's native target and are expected to invoke MCP tools correctly by design — this is lower-risk per PRD §9/workflow.md ("the cloud path is low-risk; the local path is mandatory and the likeliest source of a surprise") but should still be confirmed once a key is available, per workflow.md Phase 6's checklist.
 
+**Anthropic-path verification, run later (2026-07-31):** the project's own `ANTHROPIC_API_KEY` in `backend/.env` authenticated correctly (`apiKeySource: ANTHROPIC_API_KEY` in `SystemMessage(subtype='init')`) but the account had zero credit balance — `ResultMessage.result == "Credit balance is too low"` on the very first request, before any tool logic ran. Re-ran the identical harness/tool wiring (`AgentSdkHarness`, `tool_adapters.build_tool_server`, `ALLOWED_TOOLS`, real `PgVectorStore` against the 740 already-ingested transcript chunks) with `ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL` omitted from `ClaudeAgentOptions.env`, letting the bundled CLI fall back to the ambient Claude Code OAuth login already present on this machine (`~/.claude/.credentials.json`, `apiKeySource: none` in the init payload) — a free, no-code-change substitute for a funded API key that exercises the identical SDK/CLI tool-dispatch path. Model: `claude-haiku-4-5`.
+
+Ran the same escalating-directness sequence used against Ollama:
+1. Natural question, no tool mention, all 3 tools allowed (`"what makes a good decision maker?"`)
+2. Same, with an explicit `"Use the rag_query tool to find out: ..."` instruction
+3. Single tool allowed (`rag_query` only), forceful `"You must call the rag_query tool now ... Do not answer directly."` instruction
+
+**All three produced a genuine, structured `ToolUseBlock`** (`name=mcp__lenny_tools__rag_query`, real `input={"question": ...}`), a matching `ToolResultBlock` carrying real retrieved chunks/citations from the Annie Duke decision-making episode, and a final grounded `AssistantMessage` citing those transcripts — no errors, and (unlike `qwen3:8b`/`llama3.1:8b`) no fallback to emitting a JSON-shaped tool call as plain text. Notably, **step 1 alone was sufficient** — Claude chose to call `rag_query` on the bare natural-language question with no tool-name hint, something none of the Ollama models did even at step 2.
+
+**Conclusion:** this confirms the incompatibility identified in the entry above is specific to the local Ollama models' tool-calling behavior through the Claude Agent SDK/CLI path, not a defect in this project's tool registration, `tool_adapters.py` wiring, or system prompt — the identical wiring produces correct, reliable `ToolUseBlock` output against Anthropic on the first, least-forceful prompt.
+
 ---
 
 ## Real ingestion silently wiped by the pgvector test fixture running concurrently (2026-07-31)
