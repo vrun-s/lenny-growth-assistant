@@ -3,17 +3,20 @@
 project's SQLite-backed test suite), so these tests need the real
 docker-compose database and skip cleanly when it isn't reachable rather than
 failing the whole suite.
+
+Isolation: `store` binds to the `pg_connection` fixture (backend/tests/conftest.py),
+which runs against TEST_DATABASE_URL inside a transaction that's rolled back
+after the test — never the development database, and never a `DELETE` that
+could wipe real ingested data.
 """
 
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.engine import Connection
 
-from app.core.config import get_settings
 from app.domain.entities.document import Document
-from app.infrastructure.vectorstore.pgvector_store import DocumentModel, PgVectorStore, _VectorBase
+from app.infrastructure.vectorstore.pgvector_store import DocumentModel, PgVectorStore
 
 
 class FakeEmbedder:
@@ -28,25 +31,8 @@ class FakeEmbedder:
 
 
 @pytest.fixture
-def store():
-    settings = get_settings()
-    try:
-        candidate = PgVectorStore(embedder=FakeEmbedder(), database_url=settings.database_url)
-        with candidate._engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-    except OperationalError:
-        pytest.skip("Postgres/pgvector not reachable — start `docker compose up -d` to run this test")
-
-    _VectorBase.metadata.create_all(candidate._engine)
-    try:
-        with candidate._session_factory() as session:
-            session.query(DocumentModel).delete()
-            session.commit()
-        yield candidate
-    finally:
-        with candidate._session_factory() as session:
-            session.query(DocumentModel).delete()
-            session.commit()
+def store(pg_connection: Connection) -> PgVectorStore:
+    return PgVectorStore(embedder=FakeEmbedder(), engine=pg_connection)
 
 
 def _document(chunk: str, doc_id=None) -> Document:

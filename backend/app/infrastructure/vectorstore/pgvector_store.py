@@ -11,6 +11,7 @@ from uuid import UUID
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Text, create_engine, select
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from app.core.config import get_settings
@@ -44,9 +45,14 @@ class PgVectorStore(IVectorStore):
         self,
         embedder: OllamaEmbedder | None = None,
         database_url: str | None = None,
+        engine: Engine | Connection | None = None,
     ) -> None:
-        url = database_url or get_settings().database_url
-        self._engine = create_engine(url, connect_args={"connect_timeout": 3})
+        # `engine` lets a caller bind sessions to an already-open Connection
+        # (e.g. one held inside a test transaction for rollback isolation)
+        # instead of a fresh Engine built from a URL.
+        self._engine = engine or create_engine(
+            database_url or get_settings().database_url, connect_args={"connect_timeout": 3}
+        )
         self._session_factory = sessionmaker(bind=self._engine, expire_on_commit=False)
         self._embedder = embedder or OllamaEmbedder()
 

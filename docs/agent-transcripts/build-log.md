@@ -331,5 +331,36 @@ Ran the real `AgentSdkHarness` with tools registered against local Ollama (no An
 
 **Note on final repo state:** running the full `pytest` suite after this (to get a final green/red confirmation with the new Phase 4B tests included) re-triggered the `test_pgvector_store.py` fixture's delete, so the `documents` table is empty again at the time of writing — this is expected/correct test behavior, not data loss to worry about. Re-run `python scripts/run_ingestion.py <path>` for each episode (or re-run `bulk_ingest.py`-style scripting) to repopulate before a live demo; the pipeline itself is proven working end-to-end above.
 
+---
+
+## Isolated test database — fixing the shared-DB root cause (2026-07-31)
+
+Follow-up to the "silently wiped by the pgvector test fixture" incident above. Root-caused as: tests and real ingestion pointed at the same Postgres database, so the test fixture's correct-for-its-own-purpose `DELETE` had no way to avoid real rows. Fix: a second database (`lenny_growth_assistant_test`) in the same container, `TEST_DATABASE_URL` config, and transaction-rollback isolation in `conftest.py` instead of delete-based cleanup. Full rationale in `docs/design.md` ("Dedicated test database, transaction-rollback isolation").
+
+**Issue: rollback isolation needs every session in a test to share one connection.** `PgVectorStore` originally always built its own `Engine` from a `database_url`, and `add_documents()`/`search()` each open a fresh session via `self._session_factory()`. Binding `sessionmaker` to an `Engine` means each of those sessions can grab a *different* pooled connection — so a `pg_connection` fixture that opens one connection, begins one transaction, and rolls it back at the end wouldn't actually see or undo writes made through a different connection from the pool. Fix: added an optional `engine: Engine | Connection | None` parameter to `PgVectorStore.__init__` (additive — `database_url` still works exactly as before for `scripts/run_ingestion.py` and `infrastructure/api/deps.py`); when a `Connection` is passed in, `sessionmaker(bind=connection)` makes every session opened during the test join the same connection/transaction, so rollback actually undoes everything.
+
+**Issue: `deployment/init/` scripts only run once, on first volume init.** Postgres's `docker-entrypoint-initdb.d` mechanism only executes on an empty data directory — a plain `docker compose up -d` on the existing volume would not pick up the new `02-create-test-db.sql`. Verified this explicitly by doing `docker compose down -v && docker compose up -d` (destroys and recreates the named volume) as part of the verification pass, which is also why re-ingesting the 7-episode corpus into the fresh dev database was necessary afterward, not just a nice-to-have.
+
+**Verification performed, in order:**
+1. `docker compose down -v && docker compose up -d` — both `lenny_growth_assistant` and `lenny_growth_assistant_test` present in `psql \l`; `\dx` inside each shows `vector` extension installed.
+2. `alembic upgrade head` against the dev database — both migrations (`f144a33b5570`, `0365a449c420`) applied cleanly to the fresh volume.
+3. Re-ingested the same 7 representative episodes (Annie Duke, Elena Verna, Brian Balfour, Casey Winters, Madhavan Ramanujam, Gibson Biddle, Eli Schwartz) used earlier in this session — corpus was re-cloned from `github.com/ChatPRD/lennys-podcast-transcripts` since the previous session's temp clone location no longer existed. Ran in the background given the ~3s/chunk CPU embedding cost noted above (~35–40 min total).
+4. Ran the full `pytest` suite twice in a row; confirmed via `SELECT COUNT(*) FROM documents` against the dev database, before and after both runs, that the row count is unchanged — the test database absorbs all writes from `test_pgvector_store.py` and every one is rolled back.
+
+**Final verification results:**
+
+| Check | Result |
+|---|---|
+| `docker compose down -v && up -d` | both `lenny_growth_assistant` and `lenny_growth_assistant_test` present in `\l`; `vector` extension present in both (`\dx`) |
+| `alembic upgrade head` | both migrations applied cleanly to the fresh dev DB |
+| Re-ingestion (7 episodes, fresh corpus clone — the prior session's temp clone no longer existed) | 740 chunks (annie-duke 100, elena-verna 118, brian-balfour 113, casey-winters 69, madhavan-ramanujam 95, gibson-biddle 87, eli-schwartz 158) — within rounding of the earlier session's 741 (elena-verna chunked to 118 vs 119 previously; negligible, not investigated) |
+| `test_pgvector_store.py` alone, dev DB untouched during/after | dev count 740 → 740; test DB count 0 after |
+| Full suite run 1 | 86 passed; dev count unchanged at 740; test DB count 0 after |
+| Full suite run 2 | 86 passed; dev count unchanged at 740; test DB count 0 after |
+| `grep -r "claude_agent_sdk" backend/app/application backend/app/domain` | no matches — layering invariant still holds |
+| Safety assertion (`TEST_DATABASE_URL=DATABASE_URL`) | raises `RuntimeError` immediately, all 4 pgvector tests error out rather than silently running against dev |
+
+Root cause is now structurally closed: `test_pgvector_store.py` cannot reach the dev database even if someone reintroduces a `DELETE`-based cleanup by mistake, since it only ever sees `TEST_DATABASE_URL`'s connection, and the safety assertion catches a misconfigured `.env` before any test runs.
+
 
 ---

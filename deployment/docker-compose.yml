@@ -11,6 +11,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./init/enable-pgvector.sql:/docker-entrypoint-initdb.d/enable-pgvector.sql:ro
+      - ./init/02-create-test-db.sql:/docker-entrypoint-initdb.d/02-create-test-db.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U lenny -d lenny_growth_assistant"]
       interval: 5s

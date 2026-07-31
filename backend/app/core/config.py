@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     cors_origins: list[str] = ["http://localhost:5173"]
     database_url: str = "postgresql+psycopg://lenny:lenny@localhost:5432/lenny_growth_assistant"
+    test_database_url: str = "postgresql+psycopg://lenny:lenny@localhost:5432/lenny_growth_assistant_test"
 
     llm_provider: Literal["anthropic", "ollama"] = "anthropic"
     anthropic_api_key: str | None = None
