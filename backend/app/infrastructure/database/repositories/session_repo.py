@@ -38,7 +38,7 @@ class SqlAlchemySessionRepository(ISessionRepository):
         return _to_entity(model) if model else None
 
     def list(self) -> list[Session]:
-        models = self._db.query(ChatSessionModel).order_by(ChatSessionModel.created_at.desc()).all()
+        models = self._db.query(ChatSessionModel).order_by(ChatSessionModel.updated_at.desc()).all()
         return [_to_entity(model) for model in models]
 
     def delete(self, session_id: UUID) -> bool:

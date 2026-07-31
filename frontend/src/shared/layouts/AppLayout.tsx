@@ -1,27 +1,50 @@
-import { NavLink, Outlet } from 'react-router-dom'
-
-const navLinkClass = ({ isActive }: { isActive: boolean }) =>
-  `px-3 py-1.5 rounded-md text-sm font-medium ${
-    isActive ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:bg-neutral-100'
-  }`
+import { useState } from 'react'
+import { ArtifactViewer } from '../../features/artifacts/components/ArtifactViewer'
+import { ChatWindow } from '../../features/chat/components/ChatWindow'
+import { SettingsModal } from '../../features/settings/components/SettingsModal'
+import { useSessions } from '../../features/sessions/hooks/useSessions'
+import { Panel } from '../components/Panel'
+import { Sidebar } from '../components/Sidebar'
+import { TopBar } from '../components/TopBar'
 
 export function AppLayout() {
+  const [panelCollapsed, setPanelCollapsed] = useState(true)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const {
+    sessions,
+    activeSessionId,
+    loading: sessionsLoading,
+    error: sessionsError,
+    selectSession,
+    createSession,
+    deleteSession,
+  } = useSessions()
+
   return (
-    <div className="flex h-screen flex-col">
-      <header className="flex items-center gap-2 border-b border-neutral-200 px-4 py-3">
-        <span className="mr-4 text-sm font-semibold">Lenny Growth Assistant</span>
-        <nav className="flex gap-1">
-          <NavLink to="/" end className={navLinkClass}>
-            Chat
-          </NavLink>
-          <NavLink to="/settings" className={navLinkClass}>
-            Settings
-          </NavLink>
-        </nav>
-      </header>
-      <main className="flex-1 overflow-auto">
-        <Outlet />
-      </main>
+    <div className="flex h-screen bg-zinc-50 text-zinc-900">
+      <Sidebar
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        sessionsLoading={sessionsLoading}
+        sessionsError={sessionsError}
+        onSelectSession={selectSession}
+        onCreateSession={() => void createSession()}
+        onDeleteSession={(id) => void deleteSession(id)}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <TopBar panelCollapsed={panelCollapsed} onTogglePanel={() => setPanelCollapsed((c) => !c)} />
+        <div className="min-h-0 flex-1">
+          <ChatWindow sessionId={activeSessionId} />
+        </div>
+      </div>
+
+      <Panel collapsed={panelCollapsed}>
+        <ArtifactViewer />
+      </Panel>
+
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }

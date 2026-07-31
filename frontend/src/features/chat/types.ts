@@ -1,16 +1,11 @@
+import type { SessionSummary } from '../sessions/types'
+
 export type MessageRole = 'user' | 'assistant'
 
 export interface ChatMessage {
   id: string
   role: MessageRole
   content: string
-}
-
-export interface SessionSummary {
-  id: string
-  title: string
-  created_at: string
-  updated_at: string
 }
 
 export interface PersistedMessage {

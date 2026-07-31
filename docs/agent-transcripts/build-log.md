@@ -321,6 +321,16 @@ Ran the same escalating-directness sequence used against Ollama:
 
 FINAL VERDICT: The issue appears specific to the local Ollama execution path used in our testing rather than the project implementation itself.
 
+**Follow-up: tested `mistral-nemo:12b` (2026-07-31), per the recommendation above to try a model Ollama documents as tool-calling-capable in agentic use** (chosen over `qwen2.5`/newer `llama3.1` since it was what the user had already pulled; `ollama show` confirms `capabilities: [completion, tools]`). Ran the same escalating-directness sequence against the real production harness/DB (740 already-ingested chunks, `AgentSdkHarness`, unmodified `tool_adapters.py`):
+
+1. Natural question, no tool hint, all 3 tools allowed — no tool call; the model's plain-text answer even hallucinated calling a *different* one of the three registered tools ("I'll use the Ship30for30 tool...") while answering from general knowledge, worse than qwen3:8b's plain refusal-to-call.
+2. Explicit `"Use the rag_query tool to find out: ..."` hint — no `ToolUseBlock`; emitted `TextBlock` containing `{"input": {"tool": "rag_query", "query": "..."}}`, the same JSON-shaped-fakeout pattern qwen3:8b produced at step 3, but one step earlier (less forceful prompt needed to trigger it).
+3. Single tool allowed (`rag_query` only) + forceful "you must call it now" instruction, raw `ClaudeSDKClient` (bypassing `AgentSdkHarness`, which hardcodes all 3 tools allowed) — still no `ToolUseBlock`; `TextBlock` with `{"input": "...", "tool": "rag_query"}`. `results.citations` empty across all three steps — no genuine tool execution at any point.
+
+**Conclusion: not model-specific.** `mistral-nemo:12b` — a 12B model Ollama's own metadata tags `tools`-capable, larger than both previously-tested models — fails the identical way `qwen3:8b` and `llama3.1:8b` did: it produces a JSON object *describing* a tool call as plain text rather than emitting the structured `ToolUseBlock` the Claude Agent SDK/CLI expects, and does so under even less prompting pressure than qwen3:8b needed. Combined with the earlier finding that this same model class calls tools correctly against Ollama's raw `/v1/messages` endpoint outside the CLI, this strengthens rather than narrows the Phase 6 conclusion: the incompatibility looks systemic to how the Claude Agent SDK/CLI frames tool-enabled requests for local Ollama models generally, not a gap in any one model's tool-calling training. Recommendation for whoever picks this up next: treat "any local model via the SDK/CLI path" as unreliable for tool-calling until a model is found that clears this specific bar, rather than trying more models one at a time — the pattern is consistent across three separate model families now (qwen3, llama3.1, mistral-nemo/mistral).
+
+Diagnostic script used: ad-hoc, not committed (`scripts/` is thin-CLI-runners-only per `CLAUDE.md`; this was throwaway) — mirrors `AgentSdkHarness` for steps 1-2 and a direct `ClaudeAgentOptions`/`ClaudeSDKClient` construction for step 3, same structure as the original qwen3:8b/llama3.1:8b diagnostic above.
+
 ---
 
 ## Real ingestion silently wiped by the pgvector test fixture running concurrently (2026-07-31)
