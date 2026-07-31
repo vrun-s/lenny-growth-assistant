@@ -80,4 +80,4 @@ Tests **never touch development data**. Postgres-backed integration tests (`test
 
 `backend/tests/conftest.py` asserts at collection time that `TEST_DATABASE_URL` and `DATABASE_URL` don't resolve to the same database; if they do, the suite raises immediately instead of running. Tests that need real Postgres skip cleanly (rather than failing the whole suite) if the test database isn't reachable.
 
-Most unit tests use an in-memory SQLite database and don't need Docker running at all.
+Most unit tests use an in-memory SQLite database and don't need Docker running at all, But keeping Docker running is prefered during testing.
