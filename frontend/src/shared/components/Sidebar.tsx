@@ -1,3 +1,14 @@
+import { useState } from 'react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import type { SessionSummary } from '../../features/sessions/types'
 
 interface SidebarProps {
@@ -30,6 +41,9 @@ export function Sidebar({
   onDeleteSession,
   onOpenSettings,
 }: SidebarProps) {
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const pendingDeleteTitle = sessions.find((s) => s.id === pendingDeleteId)?.title
+
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-zinc-200 bg-white">
       <div className="px-4 py-4">
@@ -80,9 +94,7 @@ export function Sidebar({
                   aria-label={`Delete "${session.title}"`}
                   onClick={(event) => {
                     event.stopPropagation()
-                    if (window.confirm('Delete this chat? This cannot be undone.')) {
-                      onDeleteSession(session.id)
-                    }
+                    setPendingDeleteId(session.id)
                   }}
                   className="shrink-0 rounded-md p-1.5 text-zinc-400 opacity-0 transition hover:bg-zinc-200 hover:text-zinc-700 group-hover:opacity-100"
                 >
@@ -103,6 +115,35 @@ export function Sidebar({
           <span aria-hidden>⚙</span> Settings
         </button>
       </div>
+
+      <AlertDialog
+        open={pendingDeleteId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteId(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this session?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDeleteTitle ? `"${pendingDeleteTitle}"` : 'This chat'} and its messages will be
+              permanently deleted. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (pendingDeleteId) onDeleteSession(pendingDeleteId)
+                setPendingDeleteId(null)
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </aside>
   )
 }
