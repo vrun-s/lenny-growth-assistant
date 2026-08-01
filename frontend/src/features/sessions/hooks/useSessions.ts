@@ -28,6 +28,20 @@ export function useSessions() {
       .finally(() => setLoading(false))
   }, [])
 
+  // Re-fetches the list in place (keeps the active selection) without
+  // touching loading/error state — used to silently pick up Feature 4's
+  // auto-generated title after a first exchange, not a user-facing action.
+  const refreshSessions = useCallback(async () => {
+    try {
+      const list = await apiClient.get<SessionSummary[]>('/sessions')
+      setSessions(list)
+    } catch {
+      // Best-effort — the sidebar just keeps its current titles/order until
+      // the next successful refresh or reload; not worth a toast for a
+      // background sync.
+    }
+  }, [])
+
   const selectSession = useCallback((id: string) => {
     setActiveSessionId(id)
     localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, id)
@@ -67,9 +81,32 @@ export function useSessions() {
           localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
         }
       }
+
+      toast.success('Chat deleted')
     },
     [sessions, activeSessionId],
   )
 
-  return { sessions, activeSessionId, loading, error, selectSession, createSession, deleteSession }
+  const renameSession = useCallback(async (id: string, title: string) => {
+    try {
+      const updated = await apiClient.patch<SessionSummary>(`/sessions/${id}`, { title })
+      setSessions((prev) => prev.map((s) => (s.id === id ? updated : s)))
+      return true
+    } catch {
+      toast.error('Could not rename this chat. Please try again.')
+      return false
+    }
+  }, [])
+
+  return {
+    sessions,
+    activeSessionId,
+    loading,
+    error,
+    selectSession,
+    createSession,
+    deleteSession,
+    renameSession,
+    refreshSessions,
+  }
 }

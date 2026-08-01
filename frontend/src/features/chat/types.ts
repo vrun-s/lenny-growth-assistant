@@ -2,11 +2,19 @@ import type { SessionSummary } from '../sessions/types'
 
 export type MessageRole = 'user' | 'assistant'
 
+/** 'streaming'/'interrupted' only ever apply to the one in-progress assistant
+ * message a turn produces — persisted history loaded from the backend never
+ * carries this field, which is equivalent to 'done'. */
+export type ChatMessageStatus = 'streaming' | 'interrupted' | 'done'
+
 export interface ChatMessage {
   id: string
   role: MessageRole
   content: string
   artifact_id: string | null
+  citations: string[]
+  status?: ChatMessageStatus
+  toolInProgress?: string | null
 }
 
 export interface PersistedMessage {
@@ -16,6 +24,7 @@ export interface PersistedMessage {
   content: string
   created_at: string
   artifact_id: string | null
+  citations: string[]
 }
 
 export interface SessionWithMessages {

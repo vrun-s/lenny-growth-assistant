@@ -10,6 +10,11 @@ import { TopBar } from '../components/TopBar'
 
 export function AppLayout() {
   const [panelCollapsed, setPanelCollapsed] = useState(true)
+  // Which artifact the panel currently shows — not just open/closed, since a
+  // session can produce several artifacts and any of their inline
+  // ArtifactCards (see ChatBubble.tsx) can be clicked to swap the panel to
+  // that one, including older messages further up the scroll.
+  const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const {
     sessions,
@@ -19,7 +24,22 @@ export function AppLayout() {
     selectSession,
     createSession,
     deleteSession,
+    renameSession,
+    refreshSessions,
   } = useSessions()
+
+  // Feature 4 (auto-naming) runs as a server-side background task, so the
+  // frontend can't know exactly when it lands. A single fixed delay isn't
+  // reliable — Anthropic's title call typically lands in a couple seconds,
+  // but a local Ollama model can easily take 10s+ for the same small
+  // completion (confirmed live: a 1.5s-only refresh consistently raced
+  // ahead of it). A few staggered attempts covers both without polling
+  // indefinitely or wiring a websocket for one field.
+  function scheduleSessionsRefresh() {
+    for (const delayMs of [2000, 6000, 12000]) {
+      window.setTimeout(() => void refreshSessions(), delayMs)
+    }
+  }
 
   const {
     messages,
@@ -28,20 +48,26 @@ export function AppLayout() {
     error: chatError,
     errorKind: chatErrorKind,
     sendMessage,
-  } = useChatSession(activeSessionId)
+  } = useChatSession(activeSessionId, scheduleSessionsRefresh)
 
-  // Auto-open only governs the first appearance of a given artifact — the
-  // effect only re-fires when this value actually changes, so a user who
-  // manually re-collapses the panel while looking at the same trailing
-  // artifact message isn't fought by this effect re-opening it.
-  const lastMessage = messages[messages.length - 1]
-  const latestArtifactId = lastMessage?.role === 'assistant' ? lastMessage.artifact_id : null
+  // No auto-open (Claude.ai-style, chosen over "auto-open once per session"):
+  // the panel only opens when a user clicks an ArtifactCard or the TopBar
+  // toggle. A prior version auto-opened the panel on every new artifact-
+  // bearing message, which — despite a comment claiming otherwise — reopened
+  // over a manually-collapsed panel and made older artifacts unreachable once
+  // a newer message's auto-open took over. No-auto-open removes that whole
+  // class of "did it respect my manual collapse" ambiguity by construction.
+  function openArtifact(artifactId: string) {
+    setSelectedArtifactId(artifactId)
+    setPanelCollapsed(false)
+  }
 
+  // Switching sessions clears the panel rather than continuing to show an
+  // artifact from the chat the user just left.
   useEffect(() => {
-    if (latestArtifactId) {
-      setPanelCollapsed(false)
-    }
-  }, [latestArtifactId])
+    setSelectedArtifactId(null)
+    setPanelCollapsed(true)
+  }, [activeSessionId])
 
   return (
     <div className="flex h-screen bg-zinc-50 text-zinc-900">
@@ -53,6 +79,7 @@ export function AppLayout() {
         onSelectSession={selectSession}
         onCreateSession={() => void createSession()}
         onDeleteSession={(id) => void deleteSession(id)}
+        onRenameSession={renameSession}
         onOpenSettings={() => setSettingsOpen(true)}
       />
 
@@ -67,12 +94,13 @@ export function AppLayout() {
             error={chatError}
             errorKind={chatErrorKind}
             onSend={(text) => void sendMessage(text)}
+            onOpenArtifact={openArtifact}
           />
         </div>
       </div>
 
       <Panel collapsed={panelCollapsed}>
-        <ArtifactViewer artifactId={latestArtifactId} />
+        <ArtifactViewer artifactId={selectedArtifactId} />
       </Panel>
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />

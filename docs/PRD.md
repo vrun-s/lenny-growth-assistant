@@ -80,10 +80,10 @@ The real constraint on this project isn't features — it's **~3 days**. Cutting
 |---|---|---|
 | OpenAI provider | Anthropic only (cloud) | Brief requires *a* cloud provider; the Claude SDK is separately mandated. A third adapter bought nothing |
 | Custom skill router | Claude Agent SDK owns the loop | Writing a harness was the original misreading of the brief; adopting one is both correct and less code |
-| Rename chat | Skip | Not in the original brief; new/list/delete is sufficient |
+| Rename chat | Skip | Not in the original brief; new/list/delete is sufficient. **Reversed 2026-08-01** — the timeline allowed for it; `PATCH /api/sessions/{id}` + inline sidebar editing now exist, plus first-exchange auto-naming. See `docs/agent-transcripts/build-log.md`. |
 | Monaco Editor for artifacts | `react-markdown` + `rehype-sanitize`; sandboxed `<iframe srcDoc>` | ~90% of the viewer experience for a fraction of the build time |
 | ChromaDB as a second vector store | pgvector only | Avoids running two databases; Postgres is already required |
-| Full streaming UX polish | Streaming works, but artifacts render once a message finishes | Avoids detecting a code fence mid-stream (§6.6) |
+| Full streaming UX polish | Streaming works, but artifacts render once a message finishes | Avoids detecting a code fence mid-stream (§6.6). **Partially reversed 2026-08-01** — `POST /api/chat/stream` now does real token-level streaming (§11.4); artifacts/citations still only render once the turn completes, unchanged from the original reasoning here. See `docs/agent-transcripts/build-log.md`. |
 
 ---
 
@@ -325,7 +325,8 @@ All routes are mounted under a single `/api` prefix in `infrastructure/api/app.p
 | `GET /api/sessions/{id}` | Get session + messages |
 | `DELETE /api/sessions/{id}` | Delete session |
 | `POST /api/chat` | Send message, get response (harness turn) |
-| `POST /api/chat/stream` | **Deferred — not implemented.** Was scoped as "if time allows" polish (§5 cuts table, workflow.md Phase 9); investigated 2026-07-31 and confirmed unbuilt on both frontend and backend. See `docs/agent-transcripts/build-log.md`. |
+| `POST /api/chat/stream` | **Implemented 2026-08-01**, reversing the "deferred" call logged 2026-07-31. SSE (`text/event-stream`); streams token deltas plus tool-call-in-progress and terminal (final/error) events. `IAgentHarness.run_stream()` — additive alongside `run()`, same pattern as the Phase 4B `session_id` addition. Falls back to non-streaming `POST /api/chat` on a failed connection attempt. See `docs/agent-transcripts/build-log.md`. |
+| `PATCH /api/sessions/{id}` | **Added 2026-08-01**, reversing the §5 "Rename chat — Skip" cut. `{"title": "..."}` → updated `Session`; 404 if missing. Direct router→port call, no use case (docs/design.md's "use cases are added when they hold logic" standard). |
 | `GET /api/artifacts/{id}` | Fetch artifact |
 | `POST /api/ingest` | Run ingestion pipeline |
 

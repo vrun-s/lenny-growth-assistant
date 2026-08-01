@@ -12,6 +12,7 @@ interface ChatWindowProps {
   error: string | null
   errorKind: ChatErrorKind | null
   onSend: (text: string) => void
+  onOpenArtifact: (artifactId: string) => void
 }
 
 export function ChatWindow({
@@ -22,6 +23,7 @@ export function ChatWindow({
   error,
   errorKind,
   onSend,
+  onOpenArtifact,
 }: ChatWindowProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -62,7 +64,16 @@ export function ChatWindow({
         ) : (
           <div className="mx-auto flex max-w-2xl flex-col gap-3">
             {messages.map((message) => (
-              <ChatBubble key={message.id} role={message.role} content={message.content} />
+              <ChatBubble
+                key={message.id}
+                role={message.role}
+                content={message.content}
+                citations={message.citations}
+                artifactId={message.artifact_id}
+                onOpenArtifact={onOpenArtifact}
+                status={message.status}
+                toolInProgress={message.toolInProgress}
+              />
             ))}
             <div ref={bottomRef} />
           </div>
