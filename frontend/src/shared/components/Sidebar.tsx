@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { Pencil } from 'lucide-react'
+import { useRef, useState, type KeyboardEvent } from 'react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,6 +20,7 @@ interface SidebarProps {
   onSelectSession: (id: string) => void
   onCreateSession: () => void
   onDeleteSession: (id: string) => void
+  onRenameSession: (id: string, title: string) => Promise<boolean>
   onOpenSettings: () => void
 }
 
@@ -39,10 +41,54 @@ export function Sidebar({
   onSelectSession,
   onCreateSession,
   onDeleteSession,
+  onRenameSession,
   onOpenSettings,
 }: SidebarProps) {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
+  // Escape clears editingId/editValue, but the input's onBlur can still fire
+  // afterward as it unmounts — without this flag that blur would "commit"
+  // the already-cleared editValue and rename the session to "Untitled chat".
+  const skipNextCommitRef = useRef(false)
   const pendingDeleteTitle = sessions.find((s) => s.id === pendingDeleteId)?.title
+
+  function startEditing(session: SessionSummary) {
+    skipNextCommitRef.current = false
+    setEditingId(session.id)
+    setEditValue(session.title)
+  }
+
+  function cancelEditing() {
+    skipNextCommitRef.current = true
+    setEditingId(null)
+    setEditValue('')
+  }
+
+  async function commitEditing(session: SessionSummary) {
+    if (skipNextCommitRef.current) {
+      skipNextCommitRef.current = false
+      return
+    }
+    const title = editValue.trim() || 'Untitled chat'
+    setEditingId(null)
+    if (title !== session.title) {
+      await onRenameSession(session.id, title)
+    }
+  }
+
+  // Enter blurs the input, which commits via onBlur below. Escape cancels
+  // via skipNextCommitRef instead, so a blur triggered by the input
+  // unmounting right after doesn't re-commit the just-cleared value.
+  function handleEditKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      event.currentTarget.blur()
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      cancelEditing()
+    }
+  }
 
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-zinc-200 bg-white">
@@ -72,6 +118,7 @@ export function Sidebar({
         ) : (
           sessions.map((session) => {
             const isActive = session.id === activeSessionId
+            const isEditing = editingId === session.id
             return (
               <div
                 key={session.id}
@@ -79,27 +126,53 @@ export function Sidebar({
                   isActive ? 'bg-indigo-50' : 'hover:bg-zinc-100'
                 }`}
               >
-                <button
-                  type="button"
-                  onClick={() => onSelectSession(session.id)}
-                  className="min-w-0 flex-1 truncate px-3 py-2 text-left"
-                >
-                  <div className={`truncate text-sm ${isActive ? 'font-medium text-indigo-700' : 'text-zinc-700'}`}>
-                    {session.title}
-                  </div>
-                  <div className="truncate text-xs text-zinc-400">{formatTimestamp(session.created_at)}</div>
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Delete "${session.title}"`}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    setPendingDeleteId(session.id)
-                  }}
-                  className="shrink-0 rounded-md p-1.5 text-zinc-400 opacity-0 transition hover:bg-zinc-200 hover:text-zinc-700 group-hover:opacity-100"
-                >
-                  🗑
-                </button>
+                {isEditing ? (
+                  <input
+                    autoFocus
+                    value={editValue}
+                    onChange={(event) => setEditValue(event.target.value)}
+                    onKeyDown={handleEditKeyDown}
+                    onBlur={() => void commitEditing(session)}
+                    className="min-w-0 flex-1 rounded-md border border-indigo-300 bg-white px-2 py-1.5 mx-1 my-1 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onSelectSession(session.id)}
+                    className="min-w-0 flex-1 truncate px-3 py-2 text-left"
+                  >
+                    <div className={`truncate text-sm ${isActive ? 'font-medium text-indigo-700' : 'text-zinc-700'}`}>
+                      {session.title}
+                    </div>
+                    <div className="truncate text-xs text-zinc-400">{formatTimestamp(session.created_at)}</div>
+                  </button>
+                )}
+                {!isEditing && (
+                  <button
+                    type="button"
+                    aria-label={`Rename "${session.title}"`}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      startEditing(session)
+                    }}
+                    className="shrink-0 rounded-md p-1.5 text-zinc-400 opacity-0 transition hover:bg-zinc-200 hover:text-zinc-700 group-hover:opacity-100"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {!isEditing && (
+                  <button
+                    type="button"
+                    aria-label={`Delete "${session.title}"`}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setPendingDeleteId(session.id)
+                    }}
+                    className="shrink-0 rounded-md p-1.5 text-zinc-400 opacity-0 transition hover:bg-zinc-200 hover:text-zinc-700 group-hover:opacity-100"
+                  >
+                    🗑
+                  </button>
+                )}
               </div>
             )
           })
