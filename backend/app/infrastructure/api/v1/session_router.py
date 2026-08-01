@@ -8,6 +8,7 @@ from app.infrastructure.api.deps import get_message_repository, get_session_repo
 from app.infrastructure.api.v1.schemas import (
     MessageResponse,
     SessionCreateRequest,
+    SessionRenameRequest,
     SessionResponse,
     SessionWithMessagesResponse,
 )
@@ -46,6 +47,22 @@ def get_session(
         session=SessionResponse.model_validate(session),
         messages=[MessageResponse.model_validate(message) for message in messages],
     )
+
+
+@router.patch("/{session_id}", response_model=SessionResponse)
+def rename_session(
+    session_id: UUID,
+    payload: SessionRenameRequest,
+    session_repo: ISessionRepository = Depends(get_session_repository),
+) -> SessionResponse:
+    # Straight title update, no other invariant to enforce — a direct
+    # router→port call, not a new use case (docs/design.md: "use cases are
+    # added when they hold logic, not by default"), same reasoning already
+    # applied to list_sessions/delete_session above.
+    session = session_repo.rename(session_id, payload.title)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    return SessionResponse.model_validate(session)
 
 
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)

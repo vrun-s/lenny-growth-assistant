@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from uuid import UUID
@@ -17,3 +17,4 @@ class Message:
     content: str
     created_at: datetime
     artifact_id: UUID | None = None
+    citations: list[str] = field(default_factory=list)

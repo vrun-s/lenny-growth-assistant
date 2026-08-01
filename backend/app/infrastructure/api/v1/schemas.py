@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.domain.entities.artifact import ArtifactType
 from app.domain.entities.message import MessageRole
@@ -9,6 +9,18 @@ from app.domain.entities.message import MessageRole
 
 class SessionCreateRequest(BaseModel):
     title: str | None = None
+
+
+class SessionRenameRequest(BaseModel):
+    title: str
+
+    @field_validator("title")
+    @classmethod
+    def _title_not_blank(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("title must not be empty")
+        return stripped
 
 
 class SessionResponse(BaseModel):
@@ -29,6 +41,7 @@ class MessageResponse(BaseModel):
     content: str
     created_at: datetime
     artifact_id: UUID | None = None
+    citations: list[str] = []
 
 
 class SessionWithMessagesResponse(BaseModel):

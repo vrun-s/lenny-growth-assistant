@@ -15,6 +15,7 @@ def _to_entity(model: MessageModel) -> Message:
         content=model.content,
         created_at=model.created_at,
         artifact_id=model.artifact_id,
+        citations=model.citations,
     )
 
 
@@ -29,6 +30,7 @@ class SqlAlchemyMessageRepository(IMessageRepository):
             role=message.role,
             content=message.content,
             artifact_id=message.artifact_id,
+            citations=message.citations,
             created_at=message.created_at,
         )
         self._db.add(model)

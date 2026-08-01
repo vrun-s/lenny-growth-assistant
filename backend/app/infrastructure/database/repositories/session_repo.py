@@ -55,3 +55,13 @@ class SqlAlchemySessionRepository(ISessionRepository):
             return
         model.updated_at = datetime.now(timezone.utc)
         self._db.commit()
+
+    def rename(self, session_id: UUID, title: str) -> Session | None:
+        model = self._db.get(ChatSessionModel, session_id)
+        if model is None:
+            return None
+        model.title = title
+        model.updated_at = datetime.now(timezone.utc)
+        self._db.commit()
+        self._db.refresh(model)
+        return _to_entity(model)

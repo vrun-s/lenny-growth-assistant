@@ -26,6 +26,13 @@ class ISessionRepository(ABC):
         """Bump the session's updated_at to now."""
         ...
 
+    @abstractmethod
+    def rename(self, session_id: UUID, title: str) -> Session | None:
+        """Update the session's title (and bump updated_at, since a rename
+        is itself an update). Returns the updated Session, or None if the
+        session doesn't exist."""
+        ...
+
 
 class IMessageRepository(ABC):
     @abstractmethod

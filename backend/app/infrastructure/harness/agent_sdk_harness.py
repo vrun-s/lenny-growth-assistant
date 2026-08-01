@@ -1,12 +1,22 @@
 import asyncio
+from collections.abc import AsyncIterator
 from uuid import UUID
 
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, ResultMessage, TextBlock
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    ResultMessage,
+    StreamEvent,
+    TextBlock,
+    ToolUseBlock,
+)
 
 from app.application.use_cases.retrieve_context import RetrieveContextUseCase
 from app.core.config import Settings, get_settings
 from app.domain.entities.agent_result import AgentResult
 from app.domain.entities.message import Message, MessageRole
+from app.domain.entities.stream_chunk import StreamChunk
 from app.domain.exceptions import HarnessUnavailableError
 from app.domain.interfaces.agent_harness import IAgentHarness
 from app.domain.interfaces.repositories import IArtifactRepository
@@ -21,8 +31,11 @@ SYSTEM_PROMPT = (
 
 # Bounds a runaway tool-call loop (PRD §7.1's "iteration cap prevents runaway
 # loops"). Three tool calls plus a final composed reply comfortably covers
-# the three registered tools; the SDK counts each side of a turn.
+# the three registered tools; the SDK counts each side of a turn. Applies to
+# both run() and run_stream() — streaming doesn't relax this.
 MAX_TURNS = 8
+
+_TOOL_NAME_PREFIX = f"mcp__{SERVER_NAME}__"
 
 
 def _build_prompt(history: list[Message], user_message: str) -> str:
@@ -30,6 +43,10 @@ def _build_prompt(history: list[Message], user_message: str) -> str:
     turns = [f"{speaker[m.role]}: {m.content}" for m in history]
     turns.append(f"User: {user_message}")
     return "\n\n".join(turns)
+
+
+def _strip_tool_prefix(name: str) -> str:
+    return name.removeprefix(_TOOL_NAME_PREFIX)
 
 
 class AgentSdkHarness(IAgentHarness):
@@ -63,14 +80,13 @@ class AgentSdkHarness(IAgentHarness):
         except Exception as exc:
             raise HarnessUnavailableError(self._settings.llm_provider) from exc
 
-    async def _run_async(
-        self, history: list[Message], user_message: str, session_id: UUID
-    ) -> AgentResult:
+    def _build_options(
+        self, session_id: UUID, results: ToolRunResults, *, streaming: bool
+    ) -> ClaudeAgentOptions:
         env = {"ANTHROPIC_API_KEY": self._settings.harness_api_key}
         if self._settings.harness_base_url is not None:
             env["ANTHROPIC_BASE_URL"] = self._settings.harness_base_url
 
-        results = ToolRunResults()
         tool_server = build_tool_server(
             retrieve_context=self._retrieve_context,
             artifact_repo=self._artifact_repo,
@@ -94,12 +110,25 @@ class AgentSdkHarness(IAgentHarness):
             permission_mode="bypassPermissions",
             max_turns=MAX_TURNS,
         )
+        if streaming:
+            # Emits StreamEvent (raw Anthropic content_block_delta events)
+            # alongside the existing complete AssistantMessage/ResultMessage
+            # types — verified via inspect.getsource(ClaudeAgentOptions) /
+            # message_parser.py, not assumed. Off by default for run() since
+            # the non-streaming path has no use for token-level deltas.
+            options.include_partial_messages = True
         if self._settings.llm_provider == "ollama":
             # Local reasoning models (e.g. qwen3) otherwise emit very long
             # chain-of-thought before any answer, which is prohibitively slow
             # on CPU — see docs/agent-transcripts/build-log.md.
             options.thinking = {"type": "disabled"}
+        return options
 
+    async def _run_async(
+        self, history: list[Message], user_message: str, session_id: UUID
+    ) -> AgentResult:
+        results = ToolRunResults()
+        options = self._build_options(session_id, results, streaming=False)
         prompt = _build_prompt(history, user_message)
         text_parts: list[str] = []
 
@@ -117,4 +146,67 @@ class AgentSdkHarness(IAgentHarness):
             text="".join(text_parts),
             citations=results.citations,
             artifact=results.artifact,
+        )
+
+    async def run_stream(
+        self, history: list[Message], user_message: str, session_id: UUID
+    ) -> AsyncIterator[StreamChunk]:
+        """Same agent loop as run()/_run_async(), un-buffered: yields a
+        StreamChunk per token delta and per tool call started, instead of
+        accumulating silently and returning once the whole turn is done.
+        Never raises — a failure or timeout becomes a terminal "error"
+        StreamChunk, since raising out of an async generator mid-stream would
+        leave the SSE route with nothing to send the client (PRD §7.1: never
+        fail silently, and don't just hang the connection either).
+        """
+        results = ToolRunResults()
+        text_parts: list[str] = []
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + self._settings.harness_timeout_seconds
+
+        try:
+            options = self._build_options(session_id, results, streaming=True)
+            prompt = _build_prompt(history, user_message)
+
+            async with ClaudeSDKClient(options=options) as client:
+                await client.query(prompt)
+                response_iter = client.receive_response()
+                while True:
+                    remaining = deadline - loop.time()
+                    if remaining <= 0:
+                        raise TimeoutError
+                    try:
+                        message = await asyncio.wait_for(response_iter.__anext__(), timeout=remaining)
+                    except StopAsyncIteration:
+                        break
+
+                    if isinstance(message, StreamEvent):
+                        delta = message.event.get("delta", {})
+                        if message.event.get("type") == "content_block_delta" and delta.get("type") == "text_delta":
+                            text = delta.get("text", "")
+                            if text:
+                                yield StreamChunk(kind="text", text=text)
+                    elif isinstance(message, AssistantMessage):
+                        for block in message.content:
+                            if isinstance(block, TextBlock):
+                                text_parts.append(block.text)
+                            elif isinstance(block, ToolUseBlock):
+                                yield StreamChunk(kind="tool_call", tool_name=_strip_tool_prefix(block.name))
+                    elif isinstance(message, ResultMessage):
+                        if message.is_error:
+                            raise HarnessUnavailableError(self._settings.llm_provider)
+                        break
+        except TimeoutError:
+            yield StreamChunk(kind="error", error=str(HarnessUnavailableError(self._settings.llm_provider)))
+            return
+        except HarnessUnavailableError as exc:
+            yield StreamChunk(kind="error", error=str(exc))
+            return
+        except Exception:
+            yield StreamChunk(kind="error", error=str(HarnessUnavailableError(self._settings.llm_provider)))
+            return
+
+        yield StreamChunk(
+            kind="final",
+            result=AgentResult(text="".join(text_parts), citations=results.citations, artifact=results.artifact),
         )

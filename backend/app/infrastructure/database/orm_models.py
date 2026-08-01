@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from enum import Enum
 
 from sqlalchemy import Enum as SqlEnum
-from sqlalchemy import ForeignKey, Text, Uuid
+from sqlalchemy import ForeignKey, JSON, Text, Uuid
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.domain.entities.artifact import ArtifactType
@@ -73,6 +73,11 @@ class MessageModel(Base):
     artifact_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("artifacts.id", ondelete="SET NULL"), nullable=True
     )
+    # JSON, not postgresql.ARRAY(String) — the Postgres-native array type would
+    # break the SQLite-backed unit/integration test fixtures (conftest.py's
+    # db_session), which run against this same orm_models.Base. JSON is
+    # dialect-portable and Message.citations is always a flat list[str].
+    citations: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(default=_utcnow)
 
     session: Mapped["ChatSessionModel"] = relationship(back_populates="messages")
