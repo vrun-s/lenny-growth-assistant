@@ -33,3 +33,4 @@ C:\Projects\lenny-growth-assistant\.playwright-mcp\*
 test-results/
 playwright-report/
 **/screenshots
+.impeccable/

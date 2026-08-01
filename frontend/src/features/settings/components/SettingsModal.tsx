@@ -4,9 +4,52 @@ import { Button } from '@/components/ui/button'
 interface SettingsModalProps {
   open: boolean
   onClose: () => void
+  sourcesPanelEnabled: boolean
+  onSourcesPanelEnabledChange: (value: boolean) => void
+  artifactPanelEnabled: boolean
+  onArtifactPanelEnabledChange: (value: boolean) => void
 }
 
-export function SettingsModal({ open, onClose }: SettingsModalProps) {
+interface ToggleRowProps {
+  label: string
+  description: string
+  checked: boolean
+  onChange: (value: boolean) => void
+}
+
+function ToggleRow({ label, description, checked, onChange }: ToggleRowProps) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-3">
+      <div>
+        <div className="text-sm font-medium text-zinc-900">{label}</div>
+        <div className="text-xs text-zinc-500">{description}</div>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        onClick={() => onChange(!checked)}
+        className={`relative h-6 w-11 shrink-0 rounded-full transition ${checked ? 'bg-indigo-600' : 'bg-zinc-200'}`}
+      >
+        <span
+          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition ${
+            checked ? 'left-5' : 'left-0.5'
+          }`}
+        />
+      </button>
+    </div>
+  )
+}
+
+export function SettingsModal({
+  open,
+  onClose,
+  sourcesPanelEnabled,
+  onSourcesPanelEnabledChange,
+  artifactPanelEnabled,
+  onArtifactPanelEnabledChange,
+}: SettingsModalProps) {
   if (!open) return null
 
   return (
@@ -18,10 +61,25 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
             <XIcon />
           </Button>
         </div>
-        <p className="mt-4 text-sm text-zinc-500">
-          Settings aren't built yet — provider selection, model, and session management are coming in a later
-          phase.
+
+        <p className="mt-4 text-xs text-zinc-500">
+          The side panel shows one of these at a time — turning one on turns the other off. Turn both off to keep
+          the panel hidden.
         </p>
+        <div className="mt-2 divide-y divide-zinc-100">
+          <ToggleRow
+            label="Show sources panel"
+            description="Auto-show citations for grounded answers in the side panel."
+            checked={sourcesPanelEnabled}
+            onChange={onSourcesPanelEnabledChange}
+          />
+          <ToggleRow
+            label="Show artifact panel"
+            description="Allow opening generated Markdown/HTML artifacts in the side panel."
+            checked={artifactPanelEnabled}
+            onChange={onArtifactPanelEnabledChange}
+          />
+        </div>
       </div>
     </div>
   )

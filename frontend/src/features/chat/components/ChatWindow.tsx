@@ -13,6 +13,7 @@ interface ChatWindowProps {
   errorKind: ChatErrorKind | null
   onSend: (text: string) => void
   onOpenArtifact: (artifactId: string) => void
+  artifactPanelEnabled: boolean
 }
 
 export function ChatWindow({
@@ -24,6 +25,7 @@ export function ChatWindow({
   errorKind,
   onSend,
   onOpenArtifact,
+  artifactPanelEnabled,
 }: ChatWindowProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -68,9 +70,9 @@ export function ChatWindow({
                 key={message.id}
                 role={message.role}
                 content={message.content}
-                citations={message.citations}
                 artifactId={message.artifact_id}
                 onOpenArtifact={onOpenArtifact}
+                artifactPanelEnabled={artifactPanelEnabled}
                 status={message.status}
                 toolInProgress={message.toolInProgress}
               />

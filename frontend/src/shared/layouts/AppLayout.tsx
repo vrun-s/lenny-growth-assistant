@@ -1,21 +1,58 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArtifactViewer } from '../../features/artifacts/components/ArtifactViewer'
 import { ChatWindow } from '../../features/chat/components/ChatWindow'
 import { useChatSession } from '../../features/chat/hooks/useChatSession'
+import { SourcesView } from '../../features/chat/components/SourcesView'
+import { useSettings } from '../../features/settings/hooks/useSettings'
 import { SettingsModal } from '../../features/settings/components/SettingsModal'
 import { useSessions } from '../../features/sessions/hooks/useSessions'
-import { Panel } from '../components/Panel'
-import { Sidebar } from '../components/Sidebar'
+import { Panel, PANEL_DEFAULT_WIDTH, PANEL_MAX_WIDTH, PANEL_MIN_WIDTH, type PanelContent } from '../components/Panel'
+import { Sidebar, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from '../components/Sidebar'
 import { TopBar } from '../components/TopBar'
 
+const PANEL_WIDTH_STORAGE_KEY = 'lenny.panelWidth'
+const SIDEBAR_WIDTH_STORAGE_KEY = 'lenny.sidebarWidth'
+
+function readStoredWidth(key: string, min: number, max: number, fallback: number): number {
+  const stored = Number(localStorage.getItem(key))
+  return stored >= min && stored <= max ? stored : fallback
+}
+
+interface FullscreenSnapshot {
+  width: number
+  sidebarCollapsed: boolean
+}
+
 export function AppLayout() {
-  const [panelCollapsed, setPanelCollapsed] = useState(true)
-  // Which artifact the panel currently shows — not just open/closed, since a
-  // session can produce several artifacts and any of their inline
-  // ArtifactCards (see ChatBubble.tsx) can be clicked to swap the panel to
-  // that one, including older messages further up the scroll.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() =>
+    readStoredWidth(SIDEBAR_WIDTH_STORAGE_KEY, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_DEFAULT_WIDTH),
+  )
+  // Disarmed permanently (for the current session) the first time the user
+  // manually reopens a sidebar that got auto-collapsed for an artifact — see
+  // toggleSidebar. Re-armed on session switch (the rule is session-scoped).
+  const sidebarAutoCollapseArmedRef = useRef(true)
+
+  // Single side panel, mutually exclusive content — see Panel.tsx. Artifact
+  // beats sources: an incoming grounded reply only claims the panel when
+  // it's hidden or already showing sources, never stealing it from an open
+  // artifact (see the sources auto-show effect below).
+  const [panelContent, setPanelContent] = useState<PanelContent>('hidden')
+  const prevPanelContentRef = useRef<PanelContent>('hidden')
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null)
+  const [sourceCitations, setSourceCitations] = useState<string[]>([])
+  const lastAutoShownMessageIdRef = useRef<string | null>(null)
+
+  const [panelWidth, setPanelWidth] = useState<number>(() =>
+    readStoredWidth(PANEL_WIDTH_STORAGE_KEY, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH, PANEL_DEFAULT_WIDTH),
+  )
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const preFullscreenRef = useRef<FullscreenSnapshot | null>(null)
+
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const { sourcesPanelEnabled, setSourcesPanelEnabled, artifactPanelEnabled, setArtifactPanelEnabled } =
+    useSettings()
+
   const {
     sessions,
     activeSessionId,
@@ -50,60 +87,182 @@ export function AppLayout() {
     sendMessage,
   } = useChatSession(activeSessionId, scheduleSessionsRefresh)
 
-  // No auto-open (Claude.ai-style, chosen over "auto-open once per session"):
-  // the panel only opens when a user clicks an ArtifactCard or the TopBar
-  // toggle. A prior version auto-opened the panel on every new artifact-
-  // bearing message, which — despite a comment claiming otherwise — reopened
-  // over a manually-collapsed panel and made older artifacts unreachable once
-  // a newer message's auto-open took over. No-auto-open removes that whole
-  // class of "did it respect my manual collapse" ambiguity by construction.
   function openArtifact(artifactId: string) {
+    if (!artifactPanelEnabled) return
     setSelectedArtifactId(artifactId)
-    setPanelCollapsed(false)
+    setPanelContent('artifact')
   }
 
-  // Switching sessions clears the panel rather than continuing to show an
-  // artifact from the chat the user just left.
+  // Shared by the fullscreen toggle's exit path and closePanel() below —
+  // both need to undo the fullscreen layout override the same way, restoring
+  // whatever width/sidebar state was captured right before entering it.
+  function exitFullscreen() {
+    const snapshot = preFullscreenRef.current
+    setIsFullscreen(false)
+    if (snapshot) {
+      setPanelWidth(snapshot.width)
+      setSidebarCollapsed(snapshot.sidebarCollapsed)
+    }
+  }
+
+  function closePanel() {
+    // Closing while fullscreen must also exit fullscreen — the three-column
+    // layout (sidebar + chat) only renders when !isFullscreen, so leaving
+    // isFullscreen on with the panel hidden rendered nothing at all (a blank
+    // white screen) instead of returning to the normal chat view.
+    if (isFullscreen) exitFullscreen()
+    setPanelContent('hidden')
+  }
+
+  function toggleSidebar() {
+    setSidebarCollapsed((collapsed) => {
+      const opening = collapsed
+      if (opening) {
+        // A manual reopen — whether or not the collapse that preceded it was
+        // auto-triggered — permanently disarms auto-collapse for the rest of
+        // this session. Don't fight this action on the next artifact.
+        sidebarAutoCollapseArmedRef.current = false
+      }
+      return !collapsed
+    })
+  }
+
+  function toggleFullscreen() {
+    if (isFullscreen) {
+      exitFullscreen()
+    } else {
+      preFullscreenRef.current = { width: panelWidth, sidebarCollapsed }
+      setIsFullscreen(true)
+    }
+  }
+
+  function resizePanelWidth(width: number) {
+    setPanelWidth(width)
+    localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, String(width))
+  }
+
+  function resizeSidebarWidth(width: number) {
+    setSidebarWidth(width)
+    localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width))
+  }
+
+  // Auto-collapse the chat history sidebar the first time the panel shows an
+  // artifact in this session (not for sources — artifacts get priority
+  // treatment throughout this feature set). Re-collapsing on a later
+  // artifact while still armed is a harmless no-op if it's already
+  // collapsed; if the user has since manually reopened it, armed is false
+  // and this does nothing, honoring that manual choice.
+  useEffect(() => {
+    if (
+      panelContent === 'artifact' &&
+      prevPanelContentRef.current !== 'artifact' &&
+      sidebarAutoCollapseArmedRef.current
+    ) {
+      setSidebarCollapsed(true)
+    }
+    prevPanelContentRef.current = panelContent
+  }, [panelContent])
+
+  // Sources auto-show: track the most recent grounded (non-empty-citations)
+  // assistant message, and once per new such message, claim the panel for
+  // sources — but only if enabled and the panel isn't currently showing an
+  // artifact the user is actively looking at.
+  useEffect(() => {
+    const lastGrounded = [...messages]
+      .reverse()
+      .find((m) => m.role === 'assistant' && m.citations.length > 0 && (m.status === undefined || m.status === 'done'))
+    if (!lastGrounded || lastGrounded.id === lastAutoShownMessageIdRef.current) return
+    lastAutoShownMessageIdRef.current = lastGrounded.id
+    setSourceCitations(lastGrounded.citations)
+    if (sourcesPanelEnabled && panelContent !== 'artifact') {
+      setPanelContent('sources')
+    }
+  }, [messages, sourcesPanelEnabled, panelContent])
+
+  // Settings gate content, not just future auto-show — flipping a toggle off
+  // must immediately stop showing that content type, not just prevent it
+  // from being triggered again later.
+  useEffect(() => {
+    if (!sourcesPanelEnabled && panelContent === 'sources') setPanelContent('hidden')
+  }, [sourcesPanelEnabled, panelContent])
+  useEffect(() => {
+    if (!artifactPanelEnabled && panelContent === 'artifact') setPanelContent('hidden')
+  }, [artifactPanelEnabled, panelContent])
+
+  // Switching sessions clears the panel and re-arms per-session state rather
+  // than continuing to show an artifact/sources from the chat just left.
   useEffect(() => {
     setSelectedArtifactId(null)
-    setPanelCollapsed(true)
+    setPanelContent('hidden')
+    setSourceCitations([])
+    lastAutoShownMessageIdRef.current = null
+    sidebarAutoCollapseArmedRef.current = true
   }, [activeSessionId])
+
+  const showThreeColumnLayout = !isFullscreen
 
   return (
     <div className="flex h-screen bg-zinc-50 text-zinc-900">
-      <Sidebar
-        sessions={sessions}
-        activeSessionId={activeSessionId}
-        sessionsLoading={sessionsLoading}
-        sessionsError={sessionsError}
-        onSelectSession={selectSession}
-        onCreateSession={() => void createSession()}
-        onDeleteSession={(id) => void deleteSession(id)}
-        onRenameSession={renameSession}
-        onOpenSettings={() => setSettingsOpen(true)}
-      />
+      {showThreeColumnLayout && (
+        <Sidebar
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={toggleSidebar}
+          width={sidebarWidth}
+          onResizeWidth={resizeSidebarWidth}
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          sessionsLoading={sessionsLoading}
+          sessionsError={sessionsError}
+          onSelectSession={selectSession}
+          onCreateSession={() => void createSession()}
+          onDeleteSession={(id) => void deleteSession(id)}
+          onRenameSession={renameSession}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+      )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar panelCollapsed={panelCollapsed} onTogglePanel={() => setPanelCollapsed((c) => !c)} />
-        <div className="min-h-0 flex-1">
-          <ChatWindow
-            sessionId={activeSessionId}
-            messages={messages}
-            loading={messagesLoading}
-            sending={sending}
-            error={chatError}
-            errorKind={chatErrorKind}
-            onSend={(text) => void sendMessage(text)}
-            onOpenArtifact={openArtifact}
-          />
+      {showThreeColumnLayout && (
+        <div className="flex min-w-0 flex-1 flex-col">
+          <TopBar />
+          <div className="min-h-0 flex-1">
+            <ChatWindow
+              sessionId={activeSessionId}
+              messages={messages}
+              loading={messagesLoading}
+              sending={sending}
+              error={chatError}
+              errorKind={chatErrorKind}
+              onSend={(text) => void sendMessage(text)}
+              onOpenArtifact={openArtifact}
+              artifactPanelEnabled={artifactPanelEnabled}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
-      <Panel collapsed={panelCollapsed}>
-        <ArtifactViewer artifactId={selectedArtifactId} />
+      <Panel
+        content={panelContent}
+        width={panelWidth}
+        isFullscreen={isFullscreen}
+        onClose={closePanel}
+        onToggleFullscreen={toggleFullscreen}
+        onResizeWidth={resizePanelWidth}
+      >
+        {panelContent === 'artifact' ? (
+          <ArtifactViewer artifactId={selectedArtifactId} />
+        ) : (
+          <SourcesView citations={sourceCitations} />
+        )}
       </Panel>
 
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        sourcesPanelEnabled={sourcesPanelEnabled}
+        onSourcesPanelEnabledChange={setSourcesPanelEnabled}
+        artifactPanelEnabled={artifactPanelEnabled}
+        onArtifactPanelEnabledChange={setArtifactPanelEnabled}
+      />
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { Pencil } from 'lucide-react'
+import { MessagesSquare, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings as SettingsIcon } from 'lucide-react'
 import { useRef, useState, type KeyboardEvent } from 'react'
 import {
   AlertDialog,
@@ -11,8 +11,18 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import type { SessionSummary } from '../../features/sessions/types'
+import { useResizableWidth } from '../hooks/useResizableWidth'
+import { ResizeHandle } from './ResizeHandle'
+
+export const SIDEBAR_MIN_WIDTH = 200
+export const SIDEBAR_MAX_WIDTH = 420
+export const SIDEBAR_DEFAULT_WIDTH = 240
 
 interface SidebarProps {
+  collapsed: boolean
+  onToggleCollapse: () => void
+  width: number
+  onResizeWidth: (width: number) => void
   sessions: SessionSummary[]
   activeSessionId: string | null
   sessionsLoading: boolean
@@ -34,6 +44,10 @@ function formatTimestamp(iso: string): string {
 }
 
 export function Sidebar({
+  collapsed,
+  onToggleCollapse,
+  width,
+  onResizeWidth,
   sessions,
   activeSessionId,
   sessionsLoading,
@@ -52,6 +66,19 @@ export function Sidebar({
   // the already-cleared editValue and rename the session to "Untitled chat".
   const skipNextCommitRef = useRef(false)
   const pendingDeleteTitle = sessions.find((s) => s.id === pendingDeleteId)?.title
+
+  // Handle sits on the sidebar's right edge; dragging right (away from the
+  // sidebar, which is left-aligned) grows it — direction +1, the mirror of
+  // the side panel's handle on its own left edge. Called unconditionally
+  // (Rules of Hooks) even though only the expanded branch below renders it —
+  // the collapsed rail is a fixed width, not resizable.
+  const handleResizeStart = useResizableWidth({
+    width,
+    min: SIDEBAR_MIN_WIDTH,
+    max: SIDEBAR_MAX_WIDTH,
+    direction: 1,
+    onResize: onResizeWidth,
+  })
 
   function startEditing(session: SessionSummary) {
     skipNextCommitRef.current = false
@@ -90,10 +117,76 @@ export function Sidebar({
     }
   }
 
+  // Collapsed state is a slim icon-only rail (Claude.ai's own left-nav
+  // pattern), not a fully hidden sidebar — "Chats" re-expands it,
+  // functionally the same trigger as the toggle button above it, just
+  // framed for what it does rather than what it toggles.
+  if (collapsed) {
+    return (
+      <aside className="flex w-14 shrink-0 flex-col items-center border-r border-zinc-200 bg-white py-3">
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          aria-label="Show chat history"
+          title="Show chat history"
+          className="rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+        >
+          <PanelLeftOpen className="h-5 w-5" />
+        </button>
+
+        <button
+          type="button"
+          onClick={onCreateSession}
+          aria-label="New chat"
+          title="New chat"
+          className="mt-3 rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+        >
+          <Plus className="h-5 w-5" />
+        </button>
+
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          aria-label="Show all chats"
+          title="Chats"
+          className="mt-1 rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+        >
+          <MessagesSquare className="h-5 w-5" />
+        </button>
+
+        <div className="flex-1" />
+
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          aria-label="Settings"
+          title="Settings"
+          className="rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+        >
+          <SettingsIcon className="h-5 w-5" />
+        </button>
+      </aside>
+    )
+  }
+
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-zinc-200 bg-white">
-      <div className="px-4 py-4">
+    <aside
+      className="relative flex h-full shrink-0 flex-col border-r border-zinc-200 bg-white"
+      style={{ width }}
+    >
+      <ResizeHandle edge="right" onMouseDown={handleResizeStart} />
+
+      <div className="flex items-center justify-between px-4 py-4">
         <h1 className="text-sm font-semibold text-zinc-900">Lenny Growth Assistant</h1>
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          aria-label="Hide chat history"
+          title="Hide chat history"
+          className="shrink-0 rounded-lg p-1.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+        >
+          <PanelLeftClose className="h-4 w-4" />
+        </button>
       </div>
 
       <div className="px-3">
@@ -185,7 +278,7 @@ export function Sidebar({
           onClick={onOpenSettings}
           className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900"
         >
-          <span aria-hidden>⚙</span> Settings
+          <SettingsIcon className="h-4 w-4" aria-hidden /> Settings
         </button>
       </div>
 

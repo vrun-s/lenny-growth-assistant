@@ -5,9 +5,9 @@ import { ThinkingIndicator } from './ThinkingIndicator'
 interface ChatBubbleProps {
   role: MessageRole
   content: string
-  citations: string[]
   artifactId: string | null
   onOpenArtifact: (artifactId: string) => void
+  artifactPanelEnabled: boolean
   status?: ChatMessageStatus
   toolInProgress?: string | null
 }
@@ -25,9 +25,9 @@ function toolLabel(toolName: string): string {
 export function ChatBubble({
   role,
   content,
-  citations,
   artifactId,
   onOpenArtifact,
+  artifactPanelEnabled,
   status = 'done',
   toolInProgress,
 }: ChatBubbleProps) {
@@ -57,9 +57,8 @@ export function ChatBubble({
       {status === 'interrupted' && (
         <div className="px-1 text-xs text-amber-600">Response was interrupted</div>
       )}
-      {status === 'done' && artifactId && <ArtifactCard artifactId={artifactId} onOpen={onOpenArtifact} />}
-      {status === 'done' && citations.length > 0 && (
-        <div className="px-1 text-xs text-zinc-400">Sources: {citations.join(', ')}</div>
+      {status === 'done' && artifactId && (
+        <ArtifactCard artifactId={artifactId} onOpen={onOpenArtifact} enabled={artifactPanelEnabled} />
       )}
     </div>
   )
