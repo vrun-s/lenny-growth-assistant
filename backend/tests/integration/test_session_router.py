@@ -78,6 +78,50 @@ def test_get_missing_session_returns_404(client: TestClient):
     assert response.status_code == 404
 
 
+def test_rename_session_returns_200_with_updated_title(client: TestClient):
+    created = client.post("/api/sessions", json={"title": "old title"}).json()
+
+    response = client.patch(f"/api/sessions/{created['id']}", json={"title": "new title"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["title"] == "new title"
+    assert body["updated_at"] > created["updated_at"]
+
+
+def test_rename_session_persists(client: TestClient):
+    created = client.post("/api/sessions", json={"title": "old title"}).json()
+
+    client.patch(f"/api/sessions/{created['id']}", json={"title": "new title"})
+
+    refreshed = client.get(f"/api/sessions/{created['id']}").json()["session"]
+    assert refreshed["title"] == "new title"
+
+
+def test_rename_session_strips_whitespace(client: TestClient):
+    created = client.post("/api/sessions", json={"title": "old title"}).json()
+
+    response = client.patch(f"/api/sessions/{created['id']}", json={"title": "  padded title  "})
+
+    assert response.json()["title"] == "padded title"
+
+
+def test_rename_session_rejects_empty_title(client: TestClient):
+    created = client.post("/api/sessions", json={"title": "old title"}).json()
+
+    response = client.patch(f"/api/sessions/{created['id']}", json={"title": "   "})
+
+    assert response.status_code == 422
+    unchanged = client.get(f"/api/sessions/{created['id']}").json()["session"]
+    assert unchanged["title"] == "old title"
+
+
+def test_rename_missing_session_returns_404(client: TestClient):
+    response = client.patch(f"/api/sessions/{uuid4()}", json={"title": "new title"})
+
+    assert response.status_code == 404
+
+
 def test_db_connection_failure_returns_503():
     class BrokenSessionRepository(ISessionRepository):
         def create(self, session):
@@ -93,6 +137,9 @@ def test_db_connection_failure_returns_503():
             raise OperationalError("statement", {}, Exception("connection refused"))
 
         def touch(self, session_id):
+            raise OperationalError("statement", {}, Exception("connection refused"))
+
+        def rename(self, session_id, title):
             raise OperationalError("statement", {}, Exception("connection refused"))
 
     app = create_app()

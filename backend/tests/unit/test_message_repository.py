@@ -66,3 +66,33 @@ def test_list_by_session_empty_when_no_messages(db_session):
     repo = SqlAlchemyMessageRepository(db_session)
 
     assert repo.list_by_session(session.id) == []
+
+
+def test_citations_round_trip(db_session):
+    session = _make_session(db_session)
+    repo = SqlAlchemyMessageRepository(db_session)
+    now = datetime.now(timezone.utc)
+    message = Message(
+        id=uuid4(),
+        session_id=session.id,
+        role=MessageRole.ASSISTANT,
+        content="grounded answer",
+        created_at=now,
+        citations=["Annie Duke — Decision Making", "Eli Schwartz — SEO in the Age of AI"],
+    )
+
+    repo.create(message)
+
+    stored = repo.list_by_session(session.id)
+    assert stored[0].citations == ["Annie Duke — Decision Making", "Eli Schwartz — SEO in the Age of AI"]
+
+
+def test_citations_default_to_empty_list(db_session):
+    session = _make_session(db_session)
+    repo = SqlAlchemyMessageRepository(db_session)
+    now = datetime.now(timezone.utc)
+
+    repo.create(_make_message(session.id, MessageRole.USER, "hello", now))
+
+    stored = repo.list_by_session(session.id)
+    assert stored[0].citations == []

@@ -27,3 +27,9 @@ docs/requirementnotion.md
 .claude/
 
 C:\Projects\lenny-growth-assistant\.playwright-mcp\*
+
+
+.playwright-mcp/
+test-results/
+playwright-report/
+**/screenshots
