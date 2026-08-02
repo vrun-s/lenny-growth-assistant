@@ -43,21 +43,21 @@ export function Panel({ content, width, isFullscreen, onClose, onToggleFullscree
 
   return (
     <aside
-      className="relative flex h-full shrink-0 flex-col border-l border-zinc-200 bg-white shadow-sm"
+      className="relative flex h-full shrink-0 flex-col border-l border-border bg-card"
       style={{ width: isFullscreen ? '100%' : width }}
     >
       {/* Resize is horizontal-only, and disabled in fullscreen (width there
           is dictated by the viewport, not the drag handle). */}
       {!isFullscreen && <ResizeHandle edge="left" onMouseDown={handleResizeStart} />}
 
-      <div className="flex h-14 shrink-0 items-center justify-between border-b border-zinc-200 px-4">
-        <h2 className="text-sm font-semibold text-zinc-900">{TITLES[content]}</h2>
+      <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
+        <h2 className="text-sm font-semibold text-foreground">{TITLES[content]}</h2>
         <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={onToggleFullscreen}
             aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-            className="rounded-md p-1.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+            className="rounded-full p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
           >
             {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </button>
@@ -65,7 +65,7 @@ export function Panel({ content, width, isFullscreen, onClose, onToggleFullscree
             type="button"
             onClick={onClose}
             aria-label="Close panel"
-            className="rounded-md p-1.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+            className="rounded-full p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
           >
             <XIcon className="h-4 w-4" />
           </button>

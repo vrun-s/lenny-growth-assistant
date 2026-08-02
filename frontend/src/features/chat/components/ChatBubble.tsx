@@ -10,6 +10,11 @@ interface ChatBubbleProps {
   artifactPanelEnabled: boolean
   status?: ChatMessageStatus
   toolInProgress?: string | null
+  createdAt?: string
+}
+
+function formatTimestamp(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -30,6 +35,7 @@ export function ChatBubble({
   artifactPanelEnabled,
   status = 'done',
   toolInProgress,
+  createdAt,
 }: ChatBubbleProps) {
   const isUser = role === 'user'
 
@@ -46,7 +52,7 @@ export function ChatBubble({
     <div className={`flex max-w-[75%] flex-col gap-1 ${isUser ? 'self-end items-end' : 'self-start items-start'}`}>
       <div
         className={`whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
-          isUser ? 'bg-indigo-600 text-white' : 'bg-white text-zinc-900'
+          isUser ? 'bg-primary text-primary-foreground' : 'bg-card text-foreground'
         }`}
       >
         {content}
@@ -54,6 +60,9 @@ export function ChatBubble({
           <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-current align-middle opacity-40" />
         )}
       </div>
+      {status !== 'streaming' && createdAt && (
+        <span className="px-1 text-[11px] text-muted-foreground">{formatTimestamp(createdAt)}</span>
+      )}
       {status === 'interrupted' && (
         <div className="px-1 text-xs text-amber-600">Response was interrupted</div>
       )}

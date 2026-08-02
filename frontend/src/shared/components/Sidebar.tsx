@@ -123,13 +123,13 @@ export function Sidebar({
   // framed for what it does rather than what it toggles.
   if (collapsed) {
     return (
-      <aside className="flex w-14 shrink-0 flex-col items-center border-r border-zinc-200 bg-white py-3">
+      <aside className="flex w-14 shrink-0 flex-col items-center bg-background py-3">
         <button
           type="button"
           onClick={onToggleCollapse}
           aria-label="Show chat history"
           title="Show chat history"
-          className="rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+          className="rounded-full p-2.5 text-muted-foreground transition hover:bg-white hover:text-foreground hover:shadow-sm"
         >
           <PanelLeftOpen className="h-5 w-5" />
         </button>
@@ -139,7 +139,7 @@ export function Sidebar({
           onClick={onCreateSession}
           aria-label="New chat"
           title="New chat"
-          className="mt-3 rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+          className="mt-3 rounded-full bg-primary p-2.5 text-primary-foreground shadow-sm transition hover:bg-primary/90"
         >
           <Plus className="h-5 w-5" />
         </button>
@@ -149,7 +149,7 @@ export function Sidebar({
           onClick={onToggleCollapse}
           aria-label="Show all chats"
           title="Chats"
-          className="mt-1 rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+          className="mt-1 rounded-full p-2.5 text-muted-foreground transition hover:bg-white hover:text-foreground hover:shadow-sm"
         >
           <MessagesSquare className="h-5 w-5" />
         </button>
@@ -161,7 +161,7 @@ export function Sidebar({
           onClick={onOpenSettings}
           aria-label="Settings"
           title="Settings"
-          className="rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+          className="rounded-full p-2.5 text-muted-foreground transition hover:bg-white hover:text-foreground hover:shadow-sm"
         >
           <SettingsIcon className="h-5 w-5" />
         </button>
@@ -171,19 +171,19 @@ export function Sidebar({
 
   return (
     <aside
-      className="relative flex h-full shrink-0 flex-col border-r border-zinc-200 bg-white"
+      className="relative flex h-full shrink-0 flex-col bg-background"
       style={{ width }}
     >
       <ResizeHandle edge="right" onMouseDown={handleResizeStart} />
 
       <div className="flex items-center justify-between px-4 py-4">
-        <h1 className="text-sm font-semibold text-zinc-900">Lenny Growth Assistant</h1>
+        <h1 className="text-sm font-semibold tracking-tight text-foreground">Lenny Growth Assistant</h1>
         <button
           type="button"
           onClick={onToggleCollapse}
           aria-label="Hide chat history"
           title="Hide chat history"
-          className="shrink-0 rounded-lg p-1.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+          className="shrink-0 rounded-full p-1.5 text-muted-foreground transition hover:bg-white hover:text-foreground"
         >
           <PanelLeftClose className="h-4 w-4" />
         </button>
@@ -193,19 +193,20 @@ export function Sidebar({
         <button
           type="button"
           onClick={onCreateSession}
-          className="w-full rounded-xl bg-indigo-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-500"
+          className="flex w-full items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-left text-sm font-medium text-primary-foreground shadow-sm transition hover:bg-primary/90"
         >
-          + New Chat
+          <Plus className="h-4 w-4 shrink-0" aria-hidden />
+          New Chat
         </button>
       </div>
 
-      <nav className="mt-4 flex-1 space-y-1 overflow-auto px-2">
+      <nav className="mt-4 flex-1 space-y-1.5 overflow-auto px-3">
         {sessionsLoading ? (
-          <div className="px-3 py-2 text-sm text-zinc-400">Loading conversations…</div>
+          <div className="px-3 py-2 text-sm text-muted-foreground">Loading conversations…</div>
         ) : sessionsError ? (
           <div className="px-3 py-2 text-sm text-red-600">{sessionsError}</div>
         ) : sessions.length === 0 ? (
-          <div className="px-3 py-2 text-sm text-zinc-400">
+          <div className="px-3 py-2 text-sm text-muted-foreground">
             No conversations yet — start one above.
           </div>
         ) : (
@@ -215,8 +216,8 @@ export function Sidebar({
             return (
               <div
                 key={session.id}
-                className={`group flex w-full items-center gap-1 rounded-lg pr-1 transition ${
-                  isActive ? 'bg-indigo-50' : 'hover:bg-zinc-100'
+                className={`group flex w-full items-center gap-1 rounded-full pr-1 shadow-sm transition ${
+                  isActive ? 'bg-primary shadow-md' : 'bg-white hover:shadow-md'
                 }`}
               >
                 {isEditing ? (
@@ -226,18 +227,26 @@ export function Sidebar({
                     onChange={(event) => setEditValue(event.target.value)}
                     onKeyDown={handleEditKeyDown}
                     onBlur={() => void commitEditing(session)}
-                    className="min-w-0 flex-1 rounded-md border border-indigo-300 bg-white px-2 py-1.5 mx-1 my-1 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                    className="min-w-0 flex-1 rounded-full border border-border bg-white px-3 py-1.5 mx-1 my-1 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/30"
                   />
                 ) : (
                   <button
                     type="button"
                     onClick={() => onSelectSession(session.id)}
-                    className="min-w-0 flex-1 truncate px-3 py-2 text-left"
+                    className="flex min-w-0 flex-1 items-center gap-2.5 px-4 py-2.5 text-left"
                   >
-                    <div className={`truncate text-sm ${isActive ? 'font-medium text-indigo-700' : 'text-zinc-700'}`}>
-                      {session.title}
-                    </div>
-                    <div className="truncate text-xs text-zinc-400">{formatTimestamp(session.created_at)}</div>
+                    <MessagesSquare
+                      className={`h-4 w-4 shrink-0 ${isActive ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}
+                      aria-hidden
+                    />
+                    <span className="min-w-0 flex-1">
+                      <div className={`truncate text-sm font-medium ${isActive ? 'text-primary-foreground' : 'text-foreground'}`}>
+                        {session.title}
+                      </div>
+                      <div className={`truncate text-[11px] ${isActive ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
+                        {formatTimestamp(session.created_at)}
+                      </div>
+                    </span>
                   </button>
                 )}
                 {!isEditing && (
@@ -248,7 +257,11 @@ export function Sidebar({
                       event.stopPropagation()
                       startEditing(session)
                     }}
-                    className="shrink-0 rounded-md p-1.5 text-zinc-400 opacity-0 transition hover:bg-zinc-200 hover:text-zinc-700 group-hover:opacity-100"
+                    className={`shrink-0 rounded-full p-1.5 opacity-0 transition group-hover:opacity-100 ${
+                      isActive
+                        ? 'text-primary-foreground/70 hover:bg-white/15 hover:text-primary-foreground'
+                        : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                    }`}
                   >
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
@@ -261,7 +274,11 @@ export function Sidebar({
                       event.stopPropagation()
                       setPendingDeleteId(session.id)
                     }}
-                    className="shrink-0 rounded-md p-1.5 text-zinc-400 opacity-0 transition hover:bg-zinc-200 hover:text-zinc-700 group-hover:opacity-100"
+                    className={`mr-1 shrink-0 rounded-full p-1.5 opacity-0 transition group-hover:opacity-100 ${
+                      isActive
+                        ? 'text-primary-foreground/70 hover:bg-white/15 hover:text-primary-foreground'
+                        : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                    }`}
                   >
                     🗑
                   </button>
@@ -272,11 +289,11 @@ export function Sidebar({
         )}
       </nav>
 
-      <div className="border-t border-zinc-200 px-2 py-3">
+      <div className="px-3 py-3">
         <button
           type="button"
           onClick={onOpenSettings}
-          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900"
+          className="flex w-full items-center gap-2 rounded-full bg-white px-4 py-2.5 text-left text-sm font-medium text-foreground shadow-sm transition hover:shadow-md"
         >
           <SettingsIcon className="h-4 w-4" aria-hidden /> Settings
         </button>

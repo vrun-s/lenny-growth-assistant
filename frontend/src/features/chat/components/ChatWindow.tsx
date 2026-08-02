@@ -35,14 +35,14 @@ export function ChatWindow({
 
   if (!sessionId) {
     return (
-      <div className="flex h-full items-center justify-center text-center text-sm text-zinc-400">
+      <div className="flex h-full items-center justify-center text-center text-sm text-muted-foreground">
         Start a new chat to begin.
       </div>
     )
   }
 
   if (loading) {
-    return <div className="flex h-full items-center justify-center text-zinc-400">Loading conversation…</div>
+    return <div className="flex h-full items-center justify-center text-muted-foreground">Loading conversation…</div>
   }
 
   // DB failures are whole-app scoped (PRD §7.1: "frontend shows a banner,
@@ -53,14 +53,14 @@ export function ChatWindow({
   return (
     <div className="flex h-full flex-col">
       {isDbDown && (
-        <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-center text-sm font-medium text-red-700">
+        <div className="mx-4 mb-2 rounded-2xl bg-red-50 px-4 py-2 text-center text-sm font-medium text-red-700">
           {error}
         </div>
       )}
 
       <div className="flex-1 overflow-auto px-6 py-6">
         {messages.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-center text-sm text-zinc-400">
+          <div className="flex h-full items-center justify-center text-center text-sm text-muted-foreground">
             {isDbDown ? 'Waiting for the database to come back.' : 'Send a message to start the conversation.'}
           </div>
         ) : (
@@ -75,6 +75,7 @@ export function ChatWindow({
                 artifactPanelEnabled={artifactPanelEnabled}
                 status={message.status}
                 toolInProgress={message.toolInProgress}
+                createdAt={message.created_at}
               />
             ))}
             <div ref={bottomRef} />
@@ -84,7 +85,7 @@ export function ChatWindow({
 
       {error && !isDbDown && <div className="px-4 py-1 text-center text-sm text-red-600">{error}</div>}
 
-      <div className="mx-auto w-full max-w-2xl">
+      <div className="mx-auto w-full max-w-2xl px-4 pb-4">
         <MessageInput disabled={sending} onSend={onSend} />
       </div>
     </div>

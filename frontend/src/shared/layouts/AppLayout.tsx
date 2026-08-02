@@ -202,67 +202,69 @@ export function AppLayout() {
   const showThreeColumnLayout = !isFullscreen
 
   return (
-    <div className="flex h-screen bg-zinc-50 text-zinc-900">
-      {showThreeColumnLayout && (
-        <Sidebar
-          collapsed={sidebarCollapsed}
-          onToggleCollapse={toggleSidebar}
-          width={sidebarWidth}
-          onResizeWidth={resizeSidebarWidth}
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          sessionsLoading={sessionsLoading}
-          sessionsError={sessionsError}
-          onSelectSession={selectSession}
-          onCreateSession={() => void createSession()}
-          onDeleteSession={(id) => void deleteSession(id)}
-          onRenameSession={renameSession}
-          onOpenSettings={() => setSettingsOpen(true)}
-        />
-      )}
-
-      {showThreeColumnLayout && (
-        <div className="flex min-w-0 flex-1 flex-col">
-          <TopBar />
-          <div className="min-h-0 flex-1">
-            <ChatWindow
-              sessionId={activeSessionId}
-              messages={messages}
-              loading={messagesLoading}
-              sending={sending}
-              error={chatError}
-              errorKind={chatErrorKind}
-              onSend={(text) => void sendMessage(text)}
-              onOpenArtifact={openArtifact}
-              artifactPanelEnabled={artifactPanelEnabled}
-            />
-          </div>
-        </div>
-      )}
-
-      <Panel
-        content={panelContent}
-        width={panelWidth}
-        isFullscreen={isFullscreen}
-        onClose={closePanel}
-        onToggleFullscreen={toggleFullscreen}
-        onResizeWidth={resizePanelWidth}
-      >
-        {panelContent === 'artifact' ? (
-          <ArtifactViewer artifactId={selectedArtifactId} />
-        ) : (
-          <SourcesView citations={sourceCitations} />
+    <div className="flex h-screen items-stretch bg-background p-3 text-foreground sm:p-6">
+      <div className="flex h-full min-h-0 w-full overflow-hidden rounded-[24px] bg-surface shadow-[0_30px_60px_-25px_rgba(42,42,40,0.35)]">
+        {showThreeColumnLayout && (
+          <Sidebar
+            collapsed={sidebarCollapsed}
+            onToggleCollapse={toggleSidebar}
+            width={sidebarWidth}
+            onResizeWidth={resizeSidebarWidth}
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            sessionsLoading={sessionsLoading}
+            sessionsError={sessionsError}
+            onSelectSession={selectSession}
+            onCreateSession={() => void createSession()}
+            onDeleteSession={(id) => void deleteSession(id)}
+            onRenameSession={renameSession}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
         )}
-      </Panel>
 
-      <SettingsModal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        sourcesPanelEnabled={sourcesPanelEnabled}
-        onSourcesPanelEnabledChange={setSourcesPanelEnabled}
-        artifactPanelEnabled={artifactPanelEnabled}
-        onArtifactPanelEnabledChange={setArtifactPanelEnabled}
-      />
+        {showThreeColumnLayout && (
+          <div className="flex min-w-0 flex-1 flex-col">
+            <TopBar />
+            <div className="min-h-0 flex-1">
+              <ChatWindow
+                sessionId={activeSessionId}
+                messages={messages}
+                loading={messagesLoading}
+                sending={sending}
+                error={chatError}
+                errorKind={chatErrorKind}
+                onSend={(text) => void sendMessage(text)}
+                onOpenArtifact={openArtifact}
+                artifactPanelEnabled={artifactPanelEnabled}
+              />
+            </div>
+          </div>
+        )}
+
+        <Panel
+          content={panelContent}
+          width={panelWidth}
+          isFullscreen={isFullscreen}
+          onClose={closePanel}
+          onToggleFullscreen={toggleFullscreen}
+          onResizeWidth={resizePanelWidth}
+        >
+          {panelContent === 'artifact' ? (
+            <ArtifactViewer artifactId={selectedArtifactId} />
+          ) : (
+            <SourcesView citations={sourceCitations} />
+          )}
+        </Panel>
+
+        <SettingsModal
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          sourcesPanelEnabled={sourcesPanelEnabled}
+          onSourcesPanelEnabledChange={setSourcesPanelEnabled}
+          artifactPanelEnabled={artifactPanelEnabled}
+          onArtifactPanelEnabledChange={setArtifactPanelEnabled}
+        />
+      </div>
     </div>
   )
 }

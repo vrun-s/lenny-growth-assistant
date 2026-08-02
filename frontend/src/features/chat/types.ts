@@ -15,6 +15,11 @@ export interface ChatMessage {
   citations: string[]
   status?: ChatMessageStatus
   toolInProgress?: string | null
+  /** ISO timestamp shown under the bubble. Persisted history carries the
+   * server's created_at; live-sent messages are stamped client-side at
+   * creation, since neither the SSE stream nor the non-streaming fallback
+   * response returns one. */
+  created_at?: string
 }
 
 export interface PersistedMessage {

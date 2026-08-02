@@ -30,7 +30,7 @@ export function ArtifactCard({ artifactId, onOpen, enabled }: ArtifactCardProps)
       disabled={!enabled}
       title={enabled ? undefined : 'Artifact panel is turned off in Settings'}
       onClick={() => onOpen(artifactId)}
-      className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-left text-xs font-medium text-zinc-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-zinc-200 disabled:hover:bg-zinc-50 disabled:hover:text-zinc-700"
+      className="flex items-center gap-2 rounded-xl border border-border bg-white px-3 py-2 text-left text-xs font-medium text-foreground shadow-sm transition hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:shadow-sm"
     >
       <Icon className="h-4 w-4 shrink-0" />
       {label}

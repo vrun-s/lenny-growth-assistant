@@ -14,6 +14,7 @@ from claude_agent_sdk import (
 
 from app.application.use_cases.retrieve_context import RetrieveContextUseCase
 from app.core.config import Settings, get_settings
+from app.core.runtime import SUBPROCESS_UNSUPPORTED_MESSAGE, event_loop_supports_subprocess
 from app.domain.entities.agent_result import AgentResult
 from app.domain.entities.message import Message, MessageRole
 from app.domain.entities.stream_chunk import StreamChunk
@@ -83,7 +84,8 @@ class AgentSdkHarness(IAgentHarness):
     def _build_options(
         self, session_id: UUID, results: ToolRunResults, *, streaming: bool
     ) -> ClaudeAgentOptions:
-        env = {"ANTHROPIC_API_KEY": self._settings.harness_api_key}
+        ###env: dict[str, str] = {} ##FOR LOCAL TESTING
+        env = {"ANTHROPIC_API_KEY": self._settings.harness_api_key}  ##FOR GITHUB CHANGES
         if self._settings.harness_base_url is not None:
             env["ANTHROPIC_BASE_URL"] = self._settings.harness_base_url
 
@@ -163,6 +165,16 @@ class AgentSdkHarness(IAgentHarness):
         text_parts: list[str] = []
         loop = asyncio.get_event_loop()
         deadline = loop.time() + self._settings.harness_timeout_seconds
+
+        # Checked up front rather than left to fail inside the SDK: the CLI
+        # subprocess spawn would otherwise surface as a bare CLIConnectionError
+        # and get mapped to "Local model didn't respond — is Ollama running?",
+        # which sends whoever is debugging it after Ollama instead of the
+        # actual cause (--reload on Windows). run() is deliberately not
+        # guarded — it calls asyncio.run(), which builds its own loop.
+        if not event_loop_supports_subprocess():
+            yield StreamChunk(kind="error", error=SUBPROCESS_UNSUPPORTED_MESSAGE)
+            return
 
         try:
             options = self._build_options(session_id, results, streaming=True)

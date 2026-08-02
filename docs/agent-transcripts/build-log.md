@@ -690,3 +690,69 @@ Added a Playwright test using real `page.mouse` down/move/up (not synthetic even
 `tsc --noEmit`: clean. Playwright: 9 passed (8 existing + 1 new).
 
 ---
+## `uvicorn --reload` silently breaks streaming chat on Windows (2026-08-02)
+
+**Symptom:** every streamed message came back as "Response was interrupted", with the chat-visible error "Local model didn't respond — is Ollama running?" — while Ollama was demonstrably running (`GET localhost:11434` → 200, correct model pulled) and, at one point, while `.env` said `LLM_PROVIDER=anthropic`, so blaming Ollama was doubly wrong.
+
+**Two independent faults were tangled together here.** Separating them took most of the session, so both are recorded.
+
+### Fault 1 — orphaned reload workers holding the port, serving stale config
+
+`uvicorn --reload` runs the app in a `multiprocessing` child. Force-killing the reloader parent (`Stop-Process -Force`, or closing the terminal) leaves that child alive, still holding the inherited listening socket. Windows then permits a *second* server to bind the same port alongside it, rather than refusing with `EADDRINUSE` the way Linux would.
+
+Six orphans accumulated across the session; **three were on port 8000 at once**, including one started before an `.env` edit and therefore still configured for a different `LLM_PROVIDER`. Windows distributed incoming requests across all three, so a provider change appeared to apply only intermittently — the classic "I changed the config and it half-worked" symptom.
+
+These were hard to find because the worker's command line is `python -c "from multiprocessing.spawn import spawn_main; spawn_main(parent_pid=...)"` — it contains neither `uvicorn` nor `app.main`, so every `CommandLine -match 'uvicorn'` search missed them. Meanwhile `Get-Process` on the PID that `netstat` reported as the *listener* said "dead", because that PID was the already-killed parent. Both signals pointed away from the truth simultaneously, which is why this got misdiagnosed twice as "stale kernel sockets Windows won't release" before being caught. The disproof was direct: with every process supposedly dead, `curl http://127.0.0.1:8000/health` still returned `{"status":"ok"}` — something was very much alive. Enumerating *all* `python.exe` processes unconditionally then showed all six.
+
+**Lesson:** when a port behaves oddly on Windows, enumerate processes by image name with no command-line filter, and probe the port rather than trusting `netstat` PID → `Get-Process` liveness.
+
+### Fault 2 — `--reload` puts the server on an event loop that cannot spawn subprocesses
+
+Once routing was clean, streaming still failed — but now with a *different* generic message. The harness was swallowing the real exception (both `except` blocks re-raised or yielded an error chunk without ever logging), so the cause was invisible. Adding `logger.exception(...)` to the harness error paths surfaced it immediately:
+
+```
+NotImplementedError
+  at asyncio/base_events.py:535  _make_subprocess_transport
+claude_agent_sdk._errors.CLIConnectionError: Failed to start Claude Code
+```
+
+**Root cause, in uvicorn's own source (`uvicorn/loops/asyncio.py`):**
+
+```python
+def asyncio_loop_factory(use_subprocess: bool = False):
+    if sys.platform == "win32" and not use_subprocess:
+        return asyncio.ProactorEventLoop
+    return asyncio.SelectorEventLoop
+```
+
+`--reload` (and `--workers N`) sets `use_subprocess=True`, so on Windows uvicorn deliberately downgrades the server to `SelectorEventLoop`. On Windows that loop raises `NotImplementedError` from `_make_subprocess_transport` — and the Claude Agent SDK's entire transport is spawning the bundled `claude.exe` as a subprocess. Not a bug in this project's code; a genuine incompatibility between two upstream design choices.
+
+**Measured directly** with a throwaway FastAPI app exposing the running loop type (same machine, same app, only the flag differing):
+
+| launch | loop serving requests | in-loop subprocess spawn |
+|---|---|---|
+| `uvicorn ... --port N` | `ProactorEventLoop` | OK |
+| `uvicorn ... --reload --port N` | `_WindowsSelectorEventLoop` | `NotImplementedError` |
+
+Note the policy was `WindowsProactorEventLoopPolicy` in **both** cases — uvicorn constructs the Selector loop directly from the factory, bypassing the policy entirely. This is why an earlier attempted fix (`asyncio.set_event_loop_policy(WindowsProactorEventLoopPolicy())` in `app/main.py`) did nothing and was reverted: the policy was already correct.
+
+**Why one path worked and the other didn't** — the detail that initially made the diagnosis look wrong. Under `--reload`, `POST /api/chat` (non-streaming) *succeeded* while `POST /api/chat/stream` failed. `AgentSdkHarness.run()` calls `asyncio.run(...)`, which builds a **fresh** loop from the default policy → Proactor → subprocess works. `run_stream()` is an async generator executing inside uvicorn's own loop, so it inherits the broken one. Same harness, same provider, opposite outcomes.
+
+**Provider-independent.** `LLM_PROVIDER` only resolves to a base URL + model name; the SDK spawns the CLI subprocess either way. Switching Ollama↔Anthropic changes nothing about this failure.
+
+**Windows-only.** On Unix, `SelectorEventLoop` implements subprocess support via child watchers, so `--reload` is harmless there.
+
+**The frontend's fallback does not rescue it.** `useChatSession` only falls back to non-streaming `POST /api/chat` when the stream never delivers a first byte. Here the stream connects (HTTP 200) and *then* emits an `error` frame, so `gotAnyTerminalEvent` is true, no fallback fires, and the user just sees "Response was interrupted". Worth noting because the non-streaming path it would have fallen to actually works.
+
+### Fix
+
+`README.md` documented `uvicorn app.main:app --reload --port 8000`, so **any evaluator on Windows following the README would have hit this deterministically on their first message.** That made it a submission blocker, not a local quirk.
+
+1. **`app/core/runtime.py`** (new, stdlib-only, `core/`'s pure-bootstrapping role — precedent: `core/logging.py` is likewise one function): `event_loop_supports_subprocess()` plus the single shared `SUBPROCESS_UNSUPPORTED_MESSAGE`, so the startup warning and the chat-visible error cannot drift apart.
+2. **Startup warning** via a FastAPI `lifespan` in `infrastructure/api/app.py` — logs CRITICAL when the condition is detected. Deliberately **not** a raised exception: the fault only affects turns that actually reach the SDK, and the integration tests boot `create_app()` with a stubbed `IAgentHarness` that never spawns anything, so aborting startup would fail them as a false positive.
+3. **Truthful error at the point of use** — `run_stream()` checks up front and yields an error chunk naming `--reload` and the exact corrective command, instead of letting the SDK failure be mapped to "is Ollama running?". `run()` is deliberately left unguarded, since its own `asyncio.run()` makes it genuinely safe. `HarnessUnavailableError` gained an optional `message` override for this (one exception type, one 502 mapping — the handling is identical, so a second class would have bought nothing).
+4. **`README.md`** now documents the working command, with the Windows caveat and a Ctrl+C-not-force-kill note covering Fault 1.
+
+**Rejected alternative:** running the SDK interaction on a dedicated thread with its own `ProactorEventLoop`, bridging chunks back through a queue. That would preserve hot reload, but adds real concurrency machinery to the harness to work around a dev-convenience flag — against the project's standing "when in doubt, choose the simpler option" rule, and not a trade worth making on the final day.
+
+**Also fixed en route:** the harness's `except` blocks now log via `logger.exception(...)`. Their previous total silence is what made this take hours instead of minutes — PRD §7.1 says never fail silently, and mapping an exception to a user-facing string while discarding the traceback is exactly that.

@@ -89,7 +89,11 @@ test('a successful SSE stream renders text deltas and finalizes with citations',
 
   await expect(page.getByText('Good decision makers think in bets.')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Sources' })).toBeVisible()
-  await expect(page.getByText('Annie Duke — Decision Making')).toBeVisible()
+  // The sources panel renders each citation as a card with the episode and
+  // speaker as separate fields (not a flat "Episode — Speaker" string) — see
+  // SourcesView's parseCitation.
+  await expect(page.getByText('Annie Duke', { exact: true })).toBeVisible()
+  await expect(page.getByText('Decision Making', { exact: true })).toBeVisible()
 })
 
 test('a stream that fails after producing text is shown as interrupted, not resent', async ({ page }) => {

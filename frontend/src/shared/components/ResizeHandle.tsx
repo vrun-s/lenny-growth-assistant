@@ -19,7 +19,7 @@ export function ResizeHandle({ edge, onMouseDown }: ResizeHandleProps) {
       onMouseDown={onMouseDown}
       className={`group absolute inset-y-0 ${edgeClass} z-10 w-2.5 cursor-col-resize select-none`}
     >
-      <div className="pointer-events-none absolute top-1/2 left-1/2 h-10 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-zinc-300 opacity-70 transition-all group-hover:h-14 group-hover:w-1.5 group-hover:bg-indigo-400 group-hover:opacity-100" />
+      <div className="pointer-events-none absolute top-1/2 left-1/2 h-10 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#2A2A28]/15 opacity-80 shadow-sm transition-all group-hover:h-16 group-hover:w-2 group-hover:bg-[#2A2A28]/40 group-hover:opacity-100" />
     </div>
   )
 }

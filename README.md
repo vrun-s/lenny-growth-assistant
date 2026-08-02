@@ -51,8 +51,26 @@ alembic upgrade head
 
 ```bash
 cd backend
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --port 8000
 ```
+
+> **Windows: do not add `--reload`.** It silently breaks streaming chat — every
+> message comes back as "Response was interrupted". uvicorn runs reload workers
+> on a `SelectorEventLoop`, which cannot spawn subprocesses on Windows, and the
+> Claude Agent SDK runs the Claude Code CLI as a subprocess. The server logs a
+> CRITICAL warning at startup if you hit this. On macOS and Linux `--reload` is
+> safe (their `SelectorEventLoop` supports subprocesses via child watchers), so
+> add it there if you want hot reload. Details in
+> `docs/agent-transcripts/build-log.md`.
+
+Stop the server with **Ctrl+C**, not by force-killing it or closing the
+terminal. On Windows a force-killed `--reload` parent leaves its worker alive
+holding the port, and Windows permits a *second* server to bind the same port
+alongside it — requests then get split between the old and new process, so
+`.env` changes (like switching `LLM_PROVIDER`) appear to apply only
+intermittently. If chat behaves inconsistently after a restart, check for
+strays with `netstat -ano | findstr :8000` — more than one PID means this
+happened.
 
 ## Running the frontend
 

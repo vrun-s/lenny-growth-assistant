@@ -56,6 +56,7 @@ export function useChatSession(sessionId: string | null, onExchangeComplete?: ()
             content: m.content,
             artifact_id: m.artifact_id,
             citations: m.citations,
+            created_at: m.created_at,
           })),
         )
       })
@@ -79,7 +80,14 @@ export function useChatSession(sessionId: string | null, onExchangeComplete?: ()
     setErrorKind(null)
     setMessages((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), role: 'user', content: text, artifact_id: null, citations: [] },
+      {
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: text,
+        artifact_id: null,
+        citations: [],
+        created_at: new Date().toISOString(),
+      },
     ])
 
     const assistantId = crypto.randomUUID()
@@ -93,6 +101,7 @@ export function useChatSession(sessionId: string | null, onExchangeComplete?: ()
         citations: [],
         status: 'streaming',
         toolInProgress: null,
+        created_at: new Date().toISOString(),
       },
     ])
 
