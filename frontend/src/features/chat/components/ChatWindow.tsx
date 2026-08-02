@@ -14,6 +14,10 @@ interface ChatWindowProps {
   onSend: (text: string) => void
   onOpenArtifact: (artifactId: string) => void
   artifactPanelEnabled: boolean
+  /** True while the artifact panel is open — its resize handle sits right
+   * at the chat area's right edge, where a visible native scrollbar makes it
+   * hard to grab reliably. Scrolling itself still works either way. */
+  hideScrollbar?: boolean
 }
 
 export function ChatWindow({
@@ -26,6 +30,7 @@ export function ChatWindow({
   onSend,
   onOpenArtifact,
   artifactPanelEnabled,
+  hideScrollbar,
 }: ChatWindowProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -58,7 +63,7 @@ export function ChatWindow({
         </div>
       )}
 
-      <div className="flex-1 overflow-auto px-6 py-6">
+      <div className={`flex-1 overflow-auto px-6 py-6 ${hideScrollbar ? 'scrollbar-none' : ''}`}>
         {messages.length === 0 ? (
           <div className="flex h-full items-center justify-center text-center text-sm text-muted-foreground">
             {isDbDown ? 'Waiting for the database to come back.' : 'Send a message to start the conversation.'}

@@ -17,6 +17,8 @@ import { ResizeHandle } from './ResizeHandle'
 export const SIDEBAR_MIN_WIDTH = 200
 export const SIDEBAR_MAX_WIDTH = 420
 export const SIDEBAR_DEFAULT_WIDTH = 240
+// Matches the old collapsed rail's fixed `w-14`.
+const SIDEBAR_COLLAPSED_WIDTH = 56
 
 interface SidebarProps {
   collapsed: boolean
@@ -41,6 +43,25 @@ function formatTimestamp(iso: string): string {
     hour: 'numeric',
     minute: '2-digit',
   })
+}
+
+// Cross-fades the collapsed rail and expanded nav. Opacity alone isn't
+// enough — an opacity-0 element is still in the accessibility tree and still
+// hit-testable, so the inactive variant's buttons (e.g. both rails have their
+// own "Settings" button) stay focusable and collide with getByRole lookups.
+// `visibility` fixes that, but must be *delayed* on the way out (only after
+// the fade finishes) and applied *immediately* on the way in — otherwise the
+// content pops in/out instead of fading.
+function overlayTransitionStyle(active: boolean): React.CSSProperties {
+  return {
+    opacity: active ? 1 : 0,
+    visibility: active ? 'visible' : 'hidden',
+    pointerEvents: active ? 'auto' : 'none',
+    transitionProperty: 'opacity, visibility',
+    transitionDuration: '200ms',
+    transitionDelay: active ? '100ms, 0ms' : '0ms, 200ms',
+    transitionTimingFunction: 'ease-in-out',
+  }
 }
 
 export function Sidebar({
@@ -72,7 +93,7 @@ export function Sidebar({
   // the side panel's handle on its own left edge. Called unconditionally
   // (Rules of Hooks) even though only the expanded branch below renders it —
   // the collapsed rail is a fixed width, not resizable.
-  const handleResizeStart = useResizableWidth({
+  const { handleResizeStart, isDragging } = useResizableWidth({
     width,
     min: SIDEBAR_MIN_WIDTH,
     max: SIDEBAR_MAX_WIDTH,
@@ -121,9 +142,32 @@ export function Sidebar({
   // pattern), not a fully hidden sidebar — "Chats" re-expands it,
   // functionally the same trigger as the toggle button above it, just
   // framed for what it does rather than what it toggles.
-  if (collapsed) {
-    return (
-      <aside className="flex w-14 shrink-0 flex-col items-center bg-background py-3">
+  //
+  // Both variants stay mounted at all times, stacked via absolute inset-0
+  // inside an inner clipping wrapper, and cross-fade via opacity — mirrors
+  // Claude.ai's own sidebar collapse (width + fade, no content reflow mid
+  // transition since the expanded content keeps its full target width the
+  // whole time and is simply clipped by the inner wrapper's overflow-hidden).
+  // That clipping wrapper is *inner*, not on the <aside> itself, because the
+  // resize handle below straddles the aside's right edge on purpose (half
+  // in, half out) — overflow-hidden on the aside would clip its hit region
+  // and silently break dragging. The width transition is suppressed during
+  // an active drag-resize so the handle tracks the cursor 1:1 instead of
+  // lagging behind it.
+  return (
+    <aside
+      className={`relative flex h-full shrink-0 flex-col bg-background ${
+        isDragging ? '' : 'transition-[width] duration-300 ease-in-out'
+      }`}
+      style={{ width: collapsed ? SIDEBAR_COLLAPSED_WIDTH : width }}
+    >
+      {!collapsed && <ResizeHandle edge="right" onMouseDown={handleResizeStart} />}
+
+      <div className="relative h-full w-full overflow-hidden">
+      <div
+        className="absolute inset-0 flex w-14 shrink-0 flex-col items-center bg-background py-3"
+        style={overlayTransitionStyle(collapsed)}
+      >
         <button
           type="button"
           onClick={onToggleCollapse}
@@ -165,17 +209,12 @@ export function Sidebar({
         >
           <SettingsIcon className="h-5 w-5" />
         </button>
-      </aside>
-    )
-  }
+      </div>
 
-  return (
-    <aside
-      className="relative flex h-full shrink-0 flex-col bg-background"
-      style={{ width }}
-    >
-      <ResizeHandle edge="right" onMouseDown={handleResizeStart} />
-
+      <div
+        className="absolute inset-0 flex flex-col bg-background"
+        style={{ width, ...overlayTransitionStyle(!collapsed) }}
+      >
       <div className="flex items-center justify-between px-4 py-4">
         <h1 className="text-sm font-semibold tracking-tight text-foreground">Lenny Growth Assistant</h1>
         <button
@@ -297,6 +336,8 @@ export function Sidebar({
         >
           <SettingsIcon className="h-4 w-4" aria-hidden /> Settings
         </button>
+      </div>
+      </div>
       </div>
 
       <AlertDialog

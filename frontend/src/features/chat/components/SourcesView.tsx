@@ -35,9 +35,30 @@ function parseCitation(raw: string): ParsedCitation {
   return { episode, speaker, timestamp }
 }
 
-// Loose polaroid-stack rotation, deterministic per card so re-renders don't
-// jitter — alternating tilt reads as "tossed down", not a tidy aligned list.
-const ROTATIONS = [-4, 3, -2.5, 4, -3, 2.5]
+// Loose polaroid tilt, deterministic per card so re-renders don't jitter —
+// alternating lean reads as "tossed down", not a tidy aligned list.
+//
+// Deliberately small (<=1.5deg) and expressed as static Tailwind classes
+// rather than an inline `transform`, for two reasons the first version got
+// wrong:
+//   1. Rotation displaces a card's corners by roughly width/2 * sin(angle).
+//      On a ~430px-wide panel card the original 4deg threw each corner ~15px
+//      out of line, which overflowed the panel horizontally (titles were
+//      visibly sliced off at the right edge) and drove cards into each
+//      other vertically.
+//   2. An inline `style={{transform}}` outranks Tailwind's `hover:` utilities,
+//      so the intended straighten-on-hover silently never fired. Same-
+//      specificity utility classes let the hover variant win by cascade
+//      order, which is what makes the interaction work at all.
+// Class strings must stay literal — Tailwind only generates what it can see.
+const ROTATIONS = [
+  '-rotate-[1.5deg]',
+  'rotate-[1deg]',
+  '-rotate-[0.75deg]',
+  'rotate-[1.25deg]',
+  '-rotate-[1deg]',
+  'rotate-[0.75deg]',
+]
 
 /** Body content for the side panel's 'sources' mode — citations belonging to
  * the most recent grounded assistant message in the session (see AppLayout
@@ -55,19 +76,32 @@ export function SourcesView({ citations }: SourcesViewProps) {
   }
 
   return (
-    <div className="flex flex-col px-6 py-8">
+    // px-5 (not px-6) leaves room for the tilt to swing without clipping;
+    // gap-5 replaces the old -mt-3 overlap, which stacked opaque white cards
+    // directly over the previous card's title and timestamp. The tilt alone
+    // carries the "loose pile" look — the overlap was only ever costing
+    // legibility.
+    //
+    // max-w-md matters for more than typography: a tilted card's corners rise
+    // and fall by about (width / 2) * sin(angle), so the swing grows with the
+    // card. Unbounded, a card in a 900px-wide panel threw its corners ~11px
+    // out and started clipping its neighbours again. Capping the width caps
+    // the swing at ~6px no matter how wide the user drags the panel — and
+    // keeps citation lines at a readable measure instead of stretching them
+    // across the full panel.
+    <div className="mx-auto flex w-full max-w-md flex-col gap-5 px-5 py-6">
       {citations.map((citation, index) => {
         const { episode, speaker, timestamp } = parseCitation(citation)
         const rotation = ROTATIONS[index % ROTATIONS.length]
         return (
           <div
             key={`${citation}-${index}`}
-            className={`relative rounded-xl border border-black/8 bg-white px-4 py-4 shadow-[0_10px_24px_-12px_rgba(42,42,40,0.4)] transition hover:z-10 hover:-translate-y-1 hover:rotate-0 hover:shadow-[0_18px_36px_-14px_rgba(42,42,40,0.45)] ${
-              index > 0 ? '-mt-3' : ''
-            }`}
-            style={{ transform: `rotate(${rotation}deg)`, zIndex: index }}
+            className={`relative rounded-xl border border-black/8 bg-white px-4 py-3.5 shadow-[0_10px_24px_-12px_rgba(42,42,40,0.4)] transition hover:z-10 hover:-translate-y-0.5 hover:rotate-0 hover:shadow-[0_18px_36px_-14px_rgba(42,42,40,0.45)] ${rotation}`}
           >
-            <div className="text-sm font-semibold text-foreground">{episode}</div>
+            {/* Real episode titles run long ("Pricing your AI product: Lessons
+                from 400+ companies and 50 unicorns | Madhavan Ramanujam"), so
+                they must wrap rather than run off the card. */}
+            <div className="text-sm leading-snug font-semibold break-words text-foreground">{episode}</div>
             {(speaker || timestamp) && (
               <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                 {speaker && (

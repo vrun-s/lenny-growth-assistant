@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from uuid import UUID
 
@@ -35,6 +36,8 @@ SYSTEM_PROMPT = (
 # the three registered tools; the SDK counts each side of a turn. Applies to
 # both run() and run_stream() — streaming doesn't relax this.
 MAX_TURNS = 8
+
+logger = logging.getLogger(__name__)
 
 _TOOL_NAME_PREFIX = f"mcp__{SERVER_NAME}__"
 
@@ -79,13 +82,19 @@ class AgentSdkHarness(IAgentHarness):
         except HarnessUnavailableError:
             raise
         except Exception as exc:
+            # Mapping an exception to a user-facing string while discarding the
+            # traceback is exactly the silent failure PRD §7.1 forbids — and is
+            # what made the --reload diagnosis take hours (see build-log).
+            logger.exception("Harness run() failed (provider=%s)", self._settings.llm_provider)
             raise HarnessUnavailableError(self._settings.llm_provider) from exc
 
     def _build_options(
         self, session_id: UUID, results: ToolRunResults, *, streaming: bool
     ) -> ClaudeAgentOptions:
-        ###env: dict[str, str] = {} ##FOR LOCAL TESTING
-        env = {"ANTHROPIC_API_KEY": self._settings.harness_api_key}  ##FOR GITHUB CHANGES
+        ### env: dict[str, str] = {} ##FOR LOCAL TESTING
+        ### env = {"ANTHROPIC_API_KEY": self._settings.harness_api_key}  ##FOR GITHUB CHANGES
+
+        env = {"ANTHROPIC_API_KEY": self._settings.harness_api_key}
         if self._settings.harness_base_url is not None:
             env["ANTHROPIC_BASE_URL"] = self._settings.harness_base_url
 
@@ -209,12 +218,21 @@ class AgentSdkHarness(IAgentHarness):
                             raise HarnessUnavailableError(self._settings.llm_provider)
                         break
         except TimeoutError:
+            logger.warning(
+                "Harness run_stream() timed out after %ss (provider=%s)",
+                self._settings.harness_timeout_seconds,
+                self._settings.llm_provider,
+            )
             yield StreamChunk(kind="error", error=str(HarnessUnavailableError(self._settings.llm_provider)))
             return
         except HarnessUnavailableError as exc:
+            logger.exception("Harness run_stream() reported an error result")
             yield StreamChunk(kind="error", error=str(exc))
             return
         except Exception:
+            logger.exception(
+                "Harness run_stream() failed (provider=%s)", self._settings.llm_provider
+            )
             yield StreamChunk(kind="error", error=str(HarnessUnavailableError(self._settings.llm_provider)))
             return
 

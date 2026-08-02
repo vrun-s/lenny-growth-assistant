@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
 interface UseResizableWidthOptions {
   width: number
@@ -17,10 +17,15 @@ interface UseResizableWidthOptions {
  * this hook only owns the numbers. */
 export function useResizableWidth({ width, min, max, direction, onResize }: UseResizableWidthOptions) {
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null)
+  // Exposed so callers can suppress their width-transition CSS while a live
+  // drag is in progress — animating every mousemove would make the drag lag
+  // behind the cursor instead of tracking it 1:1.
+  const [isDragging, setIsDragging] = useState(false)
 
   function handleResizeStart(event: React.MouseEvent) {
     event.preventDefault()
     dragStateRef.current = { startX: event.clientX, startWidth: width }
+    setIsDragging(true)
 
     function onMouseMove(moveEvent: MouseEvent) {
       if (!dragStateRef.current) return
@@ -31,6 +36,7 @@ export function useResizableWidth({ width, min, max, direction, onResize }: UseR
 
     function onMouseUp() {
       dragStateRef.current = null
+      setIsDragging(false)
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', onMouseUp)
     }
@@ -39,5 +45,5 @@ export function useResizableWidth({ width, min, max, direction, onResize }: UseR
     window.addEventListener('mouseup', onMouseUp)
   }
 
-  return handleResizeStart
+  return { handleResizeStart, isDragging }
 }

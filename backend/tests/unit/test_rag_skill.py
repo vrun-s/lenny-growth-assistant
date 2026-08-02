@@ -36,7 +36,13 @@ def test_returns_not_found_when_nothing_relevant():
 
     result = rag_query("what is a growth loop?", retrieve_context)
 
-    assert result == {"found": False, "chunks": [], "citations": []}
+    assert result["found"] is False
+    assert result["chunks"] == []
+    assert result["citations"] == []
+    # The empty-retrieval branch must still tell the model to decline rather
+    # than fall back on general knowledge (PRD §7.1's last row, §11.5's
+    # decline wording) — an empty payload alone left that to model discretion.
+    assert "couldn't find this in Lenny's transcripts" in result["guidance"]
 
 
 def test_returns_chunks_and_citations_when_found():

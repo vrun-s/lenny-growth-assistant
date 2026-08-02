@@ -126,7 +126,7 @@ Repeat for as many episodes as you want available for retrieval.
 
 ```bash
 cd backend
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --port 8000
 ```
 
 Leave this running. The API is now at `http://localhost:8000`.

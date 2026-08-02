@@ -30,7 +30,13 @@ def test_returns_not_found_when_nothing_relevant():
 
     result = write_ship30_essay("pricing", retrieve_context)
 
-    assert result == {"found": False, "topic": "pricing", "material": [], "citations": []}
+    assert result["found"] is False
+    assert result["topic"] == "pricing"
+    assert result["material"] == []
+    assert result["citations"] == []
+    # Nothing retrieved must not become an essay written from general
+    # knowledge — the guidance has to say so explicitly.
+    assert "couldn't find this in Lenny's transcripts" in result["guidance"]
 
 
 def test_retrieves_a_broader_top_k_than_the_default():
@@ -53,3 +59,7 @@ def test_returns_material_and_citations_when_found():
     assert result["material"][0]["text"] == "Pricing is a signal."
     assert result["material"][0]["episode"] == "Episode 3"
     assert result["citations"] == ["Episode 3"]
+    # PRD §11.5's Ship30 contract must actually travel to the model, not be
+    # left to whatever it infers from the tool's name.
+    assert "1250" in result["guidance"]
+    assert "bolded one-line takeaway" in result["guidance"]

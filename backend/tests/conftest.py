@@ -13,6 +13,20 @@ from app.infrastructure.database.orm_models import Base
 from app.infrastructure.vectorstore.pgvector_store import _VectorBase
 
 
+@pytest.fixture
+def anyio_backend() -> str:
+    """Pins @pytest.mark.anyio tests to asyncio only.
+
+    Without this, anyio's pytest plugin parametrizes every marked test across
+    both of its backends — asyncio *and* trio — so the seven async
+    test_tool_adapters.py tests each ran twice and the trio half always failed
+    with ModuleNotFoundError. Nothing in this project uses trio (the harness
+    and FastAPI are asyncio), so the fix is to pin the backend rather than add
+    a dependency the app never exercises.
+    """
+    return "asyncio"
+
+
 @pytest.fixture(autouse=True)
 def _default_test_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     # LLM_PROVIDER=anthropic fails fast without a key (by design) — tests that

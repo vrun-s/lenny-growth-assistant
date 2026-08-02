@@ -39,6 +39,13 @@ export function AppLayout() {
   // artifact (see the sources auto-show effect below).
   const [panelContent, setPanelContent] = useState<PanelContent>('hidden')
   const prevPanelContentRef = useRef<PanelContent>('hidden')
+  // Panel.tsx keeps rendering while it fades out after panelContent goes
+  // 'hidden' (see its close animation) — track the last real content kind
+  // separately so the artifact/sources choice below doesn't flip mid-fade.
+  const [displayedPanelKind, setDisplayedPanelKind] = useState<'artifact' | 'sources'>('sources')
+  if (panelContent !== 'hidden' && panelContent !== displayedPanelKind) {
+    setDisplayedPanelKind(panelContent)
+  }
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null)
   const [sourceCitations, setSourceCitations] = useState<string[]>([])
   const lastAutoShownMessageIdRef = useRef<string | null>(null)
@@ -236,6 +243,7 @@ export function AppLayout() {
                 onSend={(text) => void sendMessage(text)}
                 onOpenArtifact={openArtifact}
                 artifactPanelEnabled={artifactPanelEnabled}
+                hideScrollbar={panelContent === 'artifact'}
               />
             </div>
           </div>
@@ -249,7 +257,7 @@ export function AppLayout() {
           onToggleFullscreen={toggleFullscreen}
           onResizeWidth={resizePanelWidth}
         >
-          {panelContent === 'artifact' ? (
+          {displayedPanelKind === 'artifact' ? (
             <ArtifactViewer artifactId={selectedArtifactId} />
           ) : (
             <SourcesView citations={sourceCitations} />

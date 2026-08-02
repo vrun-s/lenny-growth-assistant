@@ -756,3 +756,62 @@ Note the policy was `WindowsProactorEventLoopPolicy` in **both** cases — uvico
 **Rejected alternative:** running the SDK interaction on a dedicated thread with its own `ProactorEventLoop`, bridging chunks back through a queue. That would preserve hot reload, but adds real concurrency machinery to the harness to work around a dev-convenience flag — against the project's standing "when in doubt, choose the simpler option" rule, and not a trade worth making on the final day.
 
 **Also fixed en route:** the harness's `except` blocks now log via `logger.exception(...)`. Their previous total silence is what made this take hours instead of minutes — PRD §7.1 says never fail silently, and mapping an exception to a user-facing string while discarding the traceback is exactly that.
+
+---
+
+## Message timestamps rendered ~5.5 hours off (2026-08-02)
+
+**Symptom:** every message's timestamp displayed in the past by exactly the local UTC offset — 5:30 for this machine (IST). Session list and chat bubbles were both wrong, and consistently wrong, which is what pointed at a systematic conversion rather than a clock problem.
+
+**Root cause: the timestamp columns were `TIMESTAMP WITHOUT TIME ZONE`.** `orm_models.py` declared them as bare `Mapped[datetime]`, which SQLAlchemy maps to naive `TIMESTAMP`. The values written were always correct UTC instants — `_utcnow()` returns `datetime.now(timezone.utc)` — but Postgres discarded the offset on write, so the column held a UTC *wall-clock reading* with nothing marking it as UTC.
+
+The failure then completed itself at the two ends of the stack:
+
+1. FastAPI/Pydantic serialized the naive value with **no trailing `Z` and no offset** — `2026-08-02T13:58:17.301829` instead of `...Z`.
+2. The browser's `new Date(iso)` parses an offset-less ISO string as **local time**. So a 13:58 UTC instant was read as 13:58 IST and rendered "1:58 pm" — 5:30 earlier than the true 7:28 pm.
+
+Neither layer was individually wrong; the offset was destroyed at the column and every consumer downstream inherited the ambiguity. Worth recording because the frontend was the obvious suspect and was entirely innocent — no frontend change was needed to fix it.
+
+**Fix:** all four timestamp columns (`chat_sessions.created_at`/`updated_at`, `artifacts.created_at`, `messages.created_at`) declared `DateTime(timezone=True)` in `orm_models.py`, plus migration `a1b2c3d4e5f6` altering them to `TIMESTAMPTZ`.
+
+The migration uses `USING <col> AT TIME ZONE 'UTC'` deliberately. A plain `ALTER TYPE` would reinterpret the existing naive values as being in the *session's* timezone — silently shifting every historical row by the local offset. `AT TIME ZONE 'UTC'` states the interpretation the data actually had, so existing rows convert losslessly.
+
+**Verified:** columns report `timestamp with time zone`; the API now emits `2026-08-02T13:58:17.301829Z`; and rendered stamps match the wall clock in both paths — live-sent messages and messages re-read from Postgres after a page reload.
+
+**Known cosmetic residue, not fixed:** `useChatSession` stamps optimistic messages client-side at send time, while the server stamps at persist time. A message can therefore display a time up to a minute earlier before reload than after it. Left alone — the alternative is withholding the timestamp until the round-trip completes, which is worse.
+
+---
+
+## The artifact/sources panel opened at zero width, then wouldn't animate (2026-08-02)
+
+Two bugs in the same component, found in that order. The second was hiding behind the first.
+
+### Bug 1 — the open animation never played
+
+The panel snapped to full width instead of sliding. The intended technique is standard: mount at `width: 0`, let the browser paint that frame, then flip to the target width so the CSS transition has a start value to interpolate from.
+
+The first attempt used `requestAnimationFrame` to wait for that paint. It didn't work. Nor did two nested `requestAnimationFrame` calls. Traced with a `MutationObserver` on the panel's `style` attribute: the `<aside>` was being inserted with `width: 900px` **already set** — the `width: 0` state never reached the DOM at all. Consecutive rAF callbacks can be serviced within the same rendering update, so `open` was flipping to `true` before the zero-width commit had been painted, and React coalesced both values into a single render.
+
+**Fix:** `useLayoutEffect` + a forced synchronous reflow (`void asideRef.current.offsetWidth`), which makes the browser compute layout for the `width: 0` state *before* the next tick flips it open. Re-traced afterwards: the aside now enters at `width: 0px` and a separate style mutation moves it to the target ~3 ms later — two commits, so the transition has something to animate.
+
+### Bug 2 — the panel then stuck at zero width on the normal send path
+
+Found only during a later audit pass, and far worse than Bug 1: on the primary flow — type a question, hit send, get a grounded answer — the Sources panel mounted at **1px** and stayed there. Measured 22 one-second samples: 1px for all 22. The `Sources` heading and every citation card were in the DOM; the panel's own close button was in the accessibility tree but physically unclickable (Playwright: *"intercepts pointer events"*). The signature citation-stack feature was invisible in exactly the flow it exists for.
+
+Isolated by elimination — opening the panel by clicking an existing session worked, and clicking an artifact card worked; only *sending a message* failed.
+
+**Root cause:** Bug 1's `useLayoutEffect` was keyed on `[mounted]` alone.
+
+```js
+useLayoutEffect(() => {
+  if (!mounted) return
+  ...
+  requestAnimationFrame(() => setOpen(true))
+}, [mounted])          // content transitions are invisible to this effect
+```
+
+Closing the panel sets `open = false` immediately but defers `mounted = false` by 300 ms so the close animation can play. `AppLayout`'s session-switch effect sets `panelContent = 'hidden'`, and the auto-naming refresh burst then re-triggers `'sources'` **inside that 300 ms window**. `mounted` never drops to `false`, so a `[mounted]`-keyed effect never re-runs — `open` stays `false` and `currentWidth` is pinned at `0` forever. The two paths that worked both had the panel fully unmounted first, which is why they were unaffected.
+
+**Fix:** key the effect on `content` as well and bail on `'hidden'` — `}, [mounted, content])`. Re-measured on the same flow: 480px across all 16 samples.
+
+**Lesson worth keeping:** the mount/unmount lifecycle and the visible open/closed state are two different state machines, and an exit animation makes them diverge on purpose. Keying an entry effect on the mount flag alone is only correct while the two can't disagree — which is precisely what the close delay stopped guaranteeing.

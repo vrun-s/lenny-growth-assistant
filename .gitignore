@@ -34,3 +34,5 @@ test-results/
 playwright-report/
 **/screenshots
 .impeccable/
+# Local run logs (backend/uvicorn*.log were committed once before)
+*.log

@@ -138,3 +138,18 @@
     @apply font-sans;
     }
 }
+
+@layer utilities {
+  /* Scrolling still works — only the visible scrollbar chrome is removed.
+     Used on the chat scroll area while the side panel is open: its native
+     scrollbar sits right where the panel's own resize handle needs to be
+     grabbed, at the shared column boundary, making it hard to reliably
+     grab. */
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}

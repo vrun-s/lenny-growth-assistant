@@ -1,3 +1,5 @@
+import ReactMarkdown from 'react-markdown'
+import rehypeSanitize from 'rehype-sanitize'
 import { ArtifactCard } from '../../artifacts/components/ArtifactCard'
 import type { ChatMessageStatus, MessageRole } from '../types'
 import { ThinkingIndicator } from './ThinkingIndicator'
@@ -51,11 +53,24 @@ export function ChatBubble({
   return (
     <div className={`flex max-w-[75%] flex-col gap-1 ${isUser ? 'self-end items-end' : 'self-start items-start'}`}>
       <div
-        className={`whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
-          isUser ? 'bg-primary text-primary-foreground' : 'bg-card text-foreground'
+        className={`rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
+          isUser
+            ? 'whitespace-pre-wrap bg-primary text-primary-foreground'
+            : 'bg-card text-foreground'
         }`}
       >
-        {content}
+        {/* User text stays literal — it's what they typed, and rendering it as
+            Markdown would reformat their own message back at them. Assistant
+            replies are Markdown (the model emits ## headings and **bold**, and
+            the Ship30 structure *is* the bolded lessons), sanitized with the
+            same rehype-sanitize pass ArtifactViewer uses. */}
+        {isUser ? (
+          content
+        ) : (
+          <div className="[&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_a]:underline [&_code]:rounded [&_code]:bg-accent [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_em]:italic [&_h1]:mt-3 [&_h1]:mb-1 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:mt-3 [&_h2]:mb-1 [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:mt-3 [&_h3]:mb-1 [&_h3]:text-sm [&_h3]:font-semibold [&_li]:my-0.5 [&_ol]:my-1.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1.5 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-accent [&_pre]:p-2 [&_strong]:font-semibold [&_ul]:my-1.5 [&_ul]:list-disc [&_ul]:pl-5">
+            <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{content}</ReactMarkdown>
+          </div>
+        )}
         {status === 'streaming' && (
           <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-current align-middle opacity-40" />
         )}
